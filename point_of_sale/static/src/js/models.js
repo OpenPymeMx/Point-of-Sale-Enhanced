@@ -45,7 +45,8 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                 'products':         new module.ProductCollection(), 
                 'customers':        new module.CustomerCollection(),
                 'cashRegisters':    null, 
-
+                //'prueba pruction'         
+                'pruction':         new module.prodCollection(),
                 'bank_statements':  null,
                 'taxes':            null,
                 'pos_session':      null,
@@ -244,8 +245,9 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
             if( this.get('selectedOrder') === removed_order){
                 this.set({ selectedOrder: this.get('orders').last() });
             }
+             alert("Sin producto");
         },
-
+        
         // saves the order locally and try to send it to the backend. 'record' is a bizzarely defined JSON version of the Order
         push_order: function(record) {
             console.log('PUSHING NEW ORDER:',record);
@@ -257,7 +259,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
         add_new_order: function(){
             var order = new module.Order({pos:this});
             this.get('orders').add(order);
-            this.set('selectedOrder', order);
+            this.set('selectedOrder', order);            
         },
 
         // attemps to send all pending orders ( stored in the pos_db ) to the server,
@@ -295,12 +297,28 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                     console.error('Failed to send order:',order);
                     self._flush(index+1);
                 })
-                .done(function(){
+                .done(function(order_id){
                     //remove from db if success
-                    console.log('Order successfully sent');
+                    console.log('Order successfully sent. Order_id:', order_id);
                     self.db.remove_order(order.id);
                     self._flush(index);
+                    
+                    // Get current order name
+                    var name = [order][0].data.name;
+                    
+                    // Add order_id to javascript object
+                    // models contain the current orders on javascript
+                    models = self.get('orders').models;
+                    for (var i = 0, l = models.length; i<l; i++) {
+                        model = models[i];
+                        
+                        if (model.get('name') == name) {
+                            model.set('order_id', order_id);
+                        }
+                        //console.info('Order_id: ', model.get('order_id'));
+                    }
                 });
+                
         },
 
         scan_product: function(parsed_ean){
@@ -362,7 +380,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
             return true;
         },
     });
-
+//final module pos
     module.CashRegister = Backbone.Model.extend({
     });
 
@@ -393,6 +411,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
             this.discount = 0;
             this.type = 'unit';
             this.selected = false;
+           // alert("Producto: "+this.product.name+" se añadio a la orden")
         },
         // sets a discount [0,100]%
         set_discount: function(discount){
@@ -553,7 +572,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
             };
         },
     });
-
+//añadir producto
     module.OrderlineCollection = Backbone.Collection.extend({
         model: module.Orderline,
     });
@@ -707,7 +726,8 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
             this.set('client',client);
         },
         get_client: function(){
-            return this.get('client');
+            console.info('2: ',this);            
+            return this.get('client');            
         },
         get_client_name: function(){
             var client = this.get('client');
@@ -792,6 +812,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                 return paymentLines.push([0, 0, item.export_as_JSON()]);
             }, this));
             var client = this.pos.get('selectedOrder').get('client');
+            var order_id = this.pos.get('selectedOrder').get('order_id');
             return {
                 name: this.getName(),
                 amount_paid: this.getPaidTotal(),
@@ -803,6 +824,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                 pos_session_id: this.pos.get('pos_session').id,
                 partner_id: client ? client.id : undefined,
                 user_id: this.pos.get('cashier') ? this.pos.get('cashier').id : this.pos.get('user').id,
+                order_id: order_id ? order_id : undefined
             };
         },
         getSelectedLine: function(){
@@ -906,5 +928,34 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
     module.CustomerCollection = Backbone.Collection.extend({
         model: module.Customer,
     });
+
+
+//--------------------prueba----------------------------
+module.prod = Backbone.Model.extend({
+    defaults: {
+       /* title: 'Tarea sin título',
+        status: 'Open'*/
+       //this.get('orders').bind("click ", function(){ alert("prueba"); }
+      //$("prod-button").bind("click ", function(){ alert("prueba"); } 
+    },
+    //this.get('orders').bind('click', function(){ self.open(); });
+    
+   
+    close: function(){
+        /*this.set('status', 'Closed');*/
+    },
+    open: function(){
+         /*this.set('status', 'Open');*/
+        alert("prueba");
+    }
+});
+
+    module.prod = Backbone.Model.extend({
+    });
+
+    module.prodCollection = Backbone.Collection.extend({
+        model: module.prod,
+    });
+
 
 }

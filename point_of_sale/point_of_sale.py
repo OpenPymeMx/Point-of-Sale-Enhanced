@@ -485,52 +485,39 @@ class pos_order(osv.osv):
     _name = "pos.order"
     _description = "Point of Sale"
     _order = "id desc"
-
+     
+    #*********************************prueba de modificacion en ****************************
+    #--------------------------------Genera  orden venta en borrador-----------------------
     def create_from_ui(self, cr, uid, orders, context=None):
         #_logger.info("orders: %r", orders)
         order_ids = []
         for tmp_order in orders:
             order = tmp_order['data']
             partner_id = order['partner_id'] if 'partner_id' in order else False
-            order_id = self.create(cr, uid, {
-                'name': order['name'],
-                'user_id': order['user_id'] or False,
-                'session_id': order['pos_session_id'],
-                'lines': order['lines'],
-                'pos_reference':order['name'],
-                'partner_id':partner_id,
-            }, context)
-
-            for payments in order['statement_ids']:
-                payment = payments[2]
-                self.add_payment(cr, uid, order_id, {
-                    'amount': payment['amount'] or 0.0,
-                    'payment_date': payment['name'],
-                    'statement_id': payment['statement_id'],
-                    'payment_name': payment.get('note', False),
-                    'journal': payment['journal_id']
-                }, context=context)
-
-            if order['amount_return']:
-                session = self.pool.get('pos.session').browse(cr, uid, order['pos_session_id'], context=context)
-                cash_journal = session.cash_journal_id
-                cash_statement = False
-                if not cash_journal:
-                    cash_journal_ids = filter(lambda st: st.journal_id.type=='cash', session.statement_ids)
-                    if not len(cash_journal_ids):
-                        raise osv.except_osv( _('error!'),
-                            _("No cash statement found for this session. Unable to record returned cash."))
-                    cash_journal = cash_journal_ids[0].journal_id
-                self.add_payment(cr, uid, order_id, {
-                    'amount': -order['amount_return'],
-                    'payment_date': time.strftime('%Y-%m-%d %H:%M:%S'),
-                    'payment_name': _('return'),
-                    'journal': cash_journal.id,
-                }, context=context)
+            if 'order_id' in order:                    
+                self.write(cr, uid, order['order_id'][0], {
+                    'user_id': order['user_id'] or False,
+                    'session_id': order['pos_session_id'],
+                    'pos_reference':order['name'],
+                    'partner_id':partner_id,
+                    }, context)
+               # if 'order_id' != order['lines']:self.write(cr, uid, order['order_id'][0], {'lines': order['lines']}, context)
+               # self.update_lines(cr, uid, order['order_id'][0], order['lines'], context)
+                order_id = order['order_id'][0]
+            else:
+                order_id = self.create(cr, uid, {
+                    'name': order['name'],
+                    'user_id': order['user_id'] or False,
+                    'session_id': order['pos_session_id'],
+                    'lines': order['lines'],
+                    'pos_reference':order['name'],
+                    'partner_id':partner_id,
+                }, context)          
             order_ids.append(order_id)
             wf_service = netsvc.LocalService("workflow")
-            wf_service.trg_validate(uid, 'pos.order', order_id, 'paid', cr)
+            wf_service.trg_validate(uid, 'pos.order', order_id, 'draft', cr)
         return order_ids
+    #*********************************************************************************
 
     def unlink(self, cr, uid, ids, context=None):
         for rec in self.browse(cr, uid, ids, context=context):

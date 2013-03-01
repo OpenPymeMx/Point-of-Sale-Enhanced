@@ -106,19 +106,19 @@ function openerp_pos_widgets(instance, module){ //module is instance.point_of_sa
             });
         }
     });
-    //**********************prueba de funcion js**************************
+    /**********************Funcion que manda crear Boton*************************
+     * Manda a visualizar un boton en el estacio que se se designa en el archivo xml
+     ********************************************************************/
 
    module.prodWidget = module.PosBaseWidget.extend({
         template: 'prodWidget',
         renderElement: function() {
             var self = this;
-            this._super();
-
+            this._super();             
             this.pos.get('cashRegisters').each(function(cashRegister) {
                 var button = new module.prodButtonWidget(self,{
                     pos: self.pos,
-                    pos_widget : self.pos_widget,
-                    cashRegister: cashRegister,
+                    pos_widget : self.pos_widget,                    
                 });
                 button.appendTo(self.$el);
             });
@@ -146,7 +146,11 @@ function openerp_pos_widgets(instance, module){ //module is instance.point_of_sa
         },
     });
     
-    //********************Prueba de produccion*****************************
+   
+    /***************************************************
+     * Boton en punto de venta 
+     * Accion: Crea una orden de venta en estado nuevo
+     *************************************************/
     module.prodButtonWidget = module.PosBaseWidget.extend({
         template: 'prodButtonWidget',
         init: function(parent, options){
@@ -156,22 +160,16 @@ function openerp_pos_widgets(instance, module){ //module is instance.point_of_sa
         renderElement: function() {
             var self = this;
             this._super();         
-            var productos=self.pos.get('selectedOrder');
+
             this.$el.click(function(){
-                /*if (self.pos.get('selectedOrder').get('screen') === 'receipt'){  //TODO Why ?
+                if (self.pos.get('selectedOrder').get('screen') === 'receipt'){  //TODO Why ?
                     console.warn('TODO should not get there...?');
                     return;
                 }
-                self.pos.get('selectedOrder').addPaymentLine(self.cashRegister);*/
-                var prueba=(new instance.web.Model('pos.order')).get_func('hola')("")
-                .fail(function(unused, event){
-                   alert("fallo  evento de boton produccion");
-                })
-                .done(function(){                    
-                    console.log('evento realizado');
-                });                             
-               console.info("Datos de Boton en widgets.js: ",self);
-               console.info("Impresion de llamado a funcion-py: ",prueba);
+               
+               var currentOrder = self.pos.get('selectedOrder');
+               console.info('Current Orden: ',currentOrder);
+               self.pos.push_order(currentOrder.exportAsJSON());              
              });//funcion $el
         },//render
     });//funcion boton
