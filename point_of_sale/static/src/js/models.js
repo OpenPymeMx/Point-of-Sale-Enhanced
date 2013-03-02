@@ -45,8 +45,6 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                 'products':         new module.ProductCollection(), 
                 'customers':        new module.CustomerCollection(),
                 'cashRegisters':    null, 
-                //'prueba pruction'         
-                'pruction':         new module.prodCollection(),
                 'bank_statements':  null,
                 'taxes':            null,
                 'pos_session':      null,
@@ -411,7 +409,6 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
             this.discount = 0;
             this.type = 'unit';
             this.selected = false;
-           // alert("Producto: "+this.product.name+" se añadio a la orden")
         },
         // sets a discount [0,100]%
         set_discount: function(discount){
@@ -572,7 +569,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
             };
         },
     });
-//añadir producto
+
     module.OrderlineCollection = Backbone.Collection.extend({
         model: module.Orderline,
     });
@@ -656,13 +653,22 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
             if(options.price !== undefined){
                 line.set_price(options.price);
             }
-
-            var last_orderline = this.getLastOrderline();
-            if( last_orderline && last_orderline.can_be_merged_with(line) && options.merge !== false){
-                last_orderline.merge(line);
-            }else{
-                this.get('orderLines').add(line);
+            
+            // Helper variable to prevent product added twice
+            var added = false;
+            if(this.get('orderLines').at(this.get('orderLines').length -1)){
+            	self = this; 
+            	this.get('orderLines').each(function(last_orderline){
+                    if(last_orderline && last_orderline.can_be_merged_with(line) && options.merge !== false){
+                        last_orderline.merge(line);
+                        added = true;
+                        self.selectLine(last_orderline);
+                        return;
+                    }
+            	});
             }
+            if(added){return;}
+            this.get('orderLines').add(line);
             this.selectLine(this.getLastOrderline());
         },
         removeOrderline: function( line ){
