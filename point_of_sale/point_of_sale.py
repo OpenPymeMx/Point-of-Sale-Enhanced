@@ -485,8 +485,6 @@ class pos_order(osv.osv):
     _name = "pos.order"
     _description = "Point of Sale"
     _order = "id desc"
-     
-    #*********************************prueba de modificacion en ****************************
     #--------------------------------Genera  orden venta en borrador-----------------------
     def create_from_ui(self, cr, uid, orders, context=None):
         #_logger.info("orders: %r", orders)
@@ -535,7 +533,7 @@ class pos_order(osv.osv):
         
     def update_lines(self, cr, uid, order_id, lines, context = None):
         
-        #TODO optimizar actulizar,añador y remover lineas de productos
+        #TODO optimizar actualizar,añador y remover lineas de productos
         #ordenes nuevas
         new_lines = []
         for line in lines:
@@ -551,6 +549,14 @@ class pos_order(osv.osv):
         
         print "Dicionario de diccionarios: ",dic_current
         
+        #conjuntos eliminacion de ordenes que ya no estan en las nuevas ordes        
+        x = set(dic_new_lines)       
+        y = set(dic_current)
+        z = y-x
+        for element in z:            
+            a = dic_current[element]
+            print "Elemento a eliminar: ",a
+            self.pool.get('pos.order.line').unlink(cr, uid,a['id'],context)
       
         for lin in new_lines:
            print "Orden actual : ",current_lines
@@ -565,21 +571,7 @@ class pos_order(osv.osv):
                           'discount':lin['discount'],
                           'price_unit':lin['price_unit'],
                           'qty':lin['qty'],
-                      }, context)
-        #conjuntos        
-        x = set(dic_new_lines)
-        
-        order_lines = self.pool.get('pos.order').browse(cr, uid, order_id, context).lines
-        current_lines=self.get_current_lines(order_lines)
-        dic_current = self.get_dic(current_lines,'product_id')
-        
-        y = set(dic_current)
-        z = y-x
-        for element in z:            
-            a = dic_current[element]
-            print "Elemento a eliminar: ",a
-            self.pool.get('pos.order.line').unlink(cr, uid,a['id'],context)
-                
+                      }, context)       
         print "Fin" 
         return "True"   
             
