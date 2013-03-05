@@ -494,16 +494,15 @@ class pos_order(osv.osv):
         for tmp_order in orders:
             order = tmp_order['data']
             partner_id = order['partner_id'] if 'partner_id' in order else False
-            if 'order_id' in order:                    
-                self.write(cr, uid, order['order_id'][0], {
+            if 'order_id' in order:          
+                order_id = order['order_id'][0]          
+                self.write(cr, uid, order_id, {
                     'user_id': order['user_id'] or False,
-                    'session_id': order['pos_session_id'],
+                    'session_id': order['pos_session_id'],                    
                     'pos_reference':order['name'],
-                    'partner_id':partner_id,
-                    }, context)
-               # if 'order_id' != order['lines']:self.write(cr, uid, order['order_id'][0], {'lines': order['lines']}, context)
-               # self.update_lines(cr, uid, order['order_id'][0], order['lines'], context)
-                order_id = order['order_id'][0]
+                    'partner_id':partner_id,                    
+                    }, context)              
+                self.update_lines(cr, uid, order_id, order['lines'], context)
             else:
                 order_id = self.create(cr, uid, {
                     'name': order['name'],
@@ -518,7 +517,53 @@ class pos_order(osv.osv):
             wf_service.trg_validate(uid, 'pos.order', order_id, 'draft', cr)
         return order_ids
     #*********************************************************************************
-
+    def get_dic(self,seq, key):
+        return dict((d[key], dict(d, index=index)) for (index, d) in enumerate(seq))
+    
+    def update_lines(self, cr, uid, order_id, lines, context = None):
+        order_lines = self.pool.get('pos.order').browse(cr, uid, order_id, context).lines
+        
+        #ordenes nuevas
+        lines_list = []
+        for line in lines:
+            lines_list.append(line[2])        
+        
+        #ordenes anteriores
+        lines_order=[]
+        for line1 in order_lines:
+            d= {                            
+                        'discount':line1.discount,
+                        'price_unit':line1.price_unit,
+                        'product_id':line1.product_id.id,
+                        'qty':line1.qty,
+                        'id':line1.id,                         
+                    }
+            lines_order.append(d)
+        dic_lines = self.get_dic(lines_order,'product_id')
+        
+               
+        print "Inicio: "        
+        
+        print "Dicionario de diccionarios: ",dic_lines  
+        
+        for lin in lines_list:
+           print "Orden actual : ",lines_order
+           print "Intentando grabar producto : ",lin
+           #extraer el dato de id de linea para comparar               
+           if lin['product_id']  not in  dic_lines:
+              lin['order_id'] = order_id              
+              print "Agregado linea de producto: ",lin
+              self.pool.get('pos.order.line').create(cr, uid, lin, context)
+           else:
+               print "Registro actulizado en: linea de producto: "
+               self.pool.get('pos.order.line').write(cr, uid,dic_lines[lin['product_id']]['id'], {                               
+                          'discount':lin['discount'],
+                          'price_unit':lin['price_unit'],
+                          'qty':lin['qty'],
+                      }, context)  
+        print "Fin" 
+        return "True"   
+            
     def unlink(self, cr, uid, ids, context=None):
         for rec in self.browse(cr, uid, ids, context=context):
             if rec.state not in ('draft','cancel'):
