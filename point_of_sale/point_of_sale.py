@@ -519,17 +519,9 @@ class pos_order(osv.osv):
     #*********************************************************************************
     def get_dic(self,seq, key):
         return dict((d[key], dict(d, index=index)) for (index, d) in enumerate(seq))
-    
-    def update_lines(self, cr, uid, order_id, lines, context = None):
-        order_lines = self.pool.get('pos.order').browse(cr, uid, order_id, context).lines
-        
-        #ordenes nuevas
-        lines_list = []
-        for line in lines:
-            lines_list.append(line[2])        
-        
-        #ordenes anteriores
-        lines_order=[]
+    def get_current_lines(self,order_lines):
+        #calcula ordenes actuales        
+        current_lines=[]
         for line1 in order_lines:
             d= {                            
                         'discount':line1.discount,
@@ -538,29 +530,56 @@ class pos_order(osv.osv):
                         'qty':line1.qty,
                         'id':line1.id,                         
                     }
-            lines_order.append(d)
-        dic_lines = self.get_dic(lines_order,'product_id')
+            current_lines.append(d)
+        return current_lines
+        
+    def update_lines(self, cr, uid, order_id, lines, context = None):
+        
+        #TODO optimizar actulizar,añador y remover lineas de productos
+        #ordenes nuevas
+        new_lines = []
+        for line in lines:
+            new_lines.append(line[2])        
+        dic_new_lines = self.get_dic(new_lines,'product_id')
+        
+        order_lines = self.pool.get('pos.order').browse(cr, uid, order_id, context).lines
+        current_lines=self.get_current_lines(order_lines)
+        dic_current = self.get_dic(current_lines,'product_id')
         
                
         print "Inicio: "        
         
-        print "Dicionario de diccionarios: ",dic_lines  
+        print "Dicionario de diccionarios: ",dic_current
         
-        for lin in lines_list:
-           print "Orden actual : ",lines_order
-           print "Intentando grabar producto : ",lin
-           #extraer el dato de id de linea para comparar               
-           if lin['product_id']  not in  dic_lines:
+      
+        for lin in new_lines:
+           print "Orden actual : ",current_lines
+           print "Intentando grabar producto : ",lin               
+           if lin['product_id']  not in  dic_current:
               lin['order_id'] = order_id              
               print "Agregado linea de producto: ",lin
               self.pool.get('pos.order.line').create(cr, uid, lin, context)
            else:
-               print "Registro actulizado en: linea de producto: "
-               self.pool.get('pos.order.line').write(cr, uid,dic_lines[lin['product_id']]['id'], {                               
+               print "Registro actulizado en: linea de producto: ",lin
+               self.pool.get('pos.order.line').write(cr, uid,dic_current[lin['product_id']]['id'], {                               
                           'discount':lin['discount'],
                           'price_unit':lin['price_unit'],
                           'qty':lin['qty'],
-                      }, context)  
+                      }, context)
+        #conjuntos        
+        x = set(dic_new_lines)
+        
+        order_lines = self.pool.get('pos.order').browse(cr, uid, order_id, context).lines
+        current_lines=self.get_current_lines(order_lines)
+        dic_current = self.get_dic(current_lines,'product_id')
+        
+        y = set(dic_current)
+        z = y-x
+        for element in z:            
+            a = dic_current[element]
+            print "Elemento a eliminar: ",a
+            self.pool.get('pos.order.line').unlink(cr, uid,a['id'],context)
+                
         print "Fin" 
         return "True"   
             
