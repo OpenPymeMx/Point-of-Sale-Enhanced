@@ -36,13 +36,6 @@ import openerp.addons.product.product
 
 _logger = logging.getLogger(__name__)
 
-class pos_prueba(osv.osv):
-    _name="pos.prueba"
-    def test(self, cr, uid, ids, context=None):
-        print 'hola'               
-        return True
-pos_prueba()    
-
 class pos_config(osv.osv):
     _name = 'pos.config'
 
@@ -538,7 +531,10 @@ class pos_order(osv.osv):
                     'payment_name': _('return'),
                     'journal': cash_journal.id,
                 }, context=context)
+<<<<<<< HEAD
                 
+=======
+>>>>>>> payment
             order_ids.append(order_id)
             self.signal_paid(cr, uid, [order_id])
         return order_ids
