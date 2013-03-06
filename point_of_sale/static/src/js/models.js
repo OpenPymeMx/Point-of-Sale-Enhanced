@@ -243,7 +243,6 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
             if( this.get('selectedOrder') === removed_order){
                 this.set({ selectedOrder: this.get('orders').last() });
             }
-             alert("Sin producto");
         },
         
         // saves the order locally and try to send it to the backend. 'record' is a bizzarely defined JSON version of the Order
@@ -935,33 +934,10 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
         model: module.Customer,
     });
 
-
-//--------------------prueba----------------------------
-module.prod = Backbone.Model.extend({
-    defaults: {
-       /* title: 'Tarea sin título',
-        status: 'Open'*/
-       //this.get('orders').bind("click ", function(){ alert("prueba"); }
-      //$("prod-button").bind("click ", function(){ alert("prueba"); } 
-    },
-    //this.get('orders').bind('click', function(){ self.open(); });
-    
-   
-    close: function(){
-        /*this.set('status', 'Closed');*/
-    },
-    open: function(){
-         /*this.set('status', 'Open');*/
-        alert("prueba");
-    }
-});
-
     module.prod = Backbone.Model.extend({
     });
 
     module.prodCollection = Backbone.Collection.extend({
         model: module.prod,
     });
-
-
 }
