@@ -40,7 +40,6 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                 'partner_list':     null,   // list of all partners with an ean
                 'cashier':          null,   // the logged cashier, if different from user
 
-                'orders':           new module.OrderCollection(),
                 //this is the product list as seen by the product list widgets, it will change based on the category filters
                 'products':         new module.ProductCollection(), 
                 'customers':        new module.CustomerCollection(),

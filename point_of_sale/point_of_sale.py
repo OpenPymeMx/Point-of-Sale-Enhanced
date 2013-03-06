@@ -478,7 +478,7 @@ class pos_order(osv.osv):
     _name = "pos.order"
     _description = "Point of Sale"
     _order = "id desc"
-    
+
     def create_from_ui(self, cr, uid, orders, context=None):
         #_logger.info("orders: %r", orders)
         order_ids = []
@@ -503,8 +503,8 @@ class pos_order(osv.osv):
                     'lines': order['lines'],
                     'pos_reference':order['name'],
                     'partner_id':partner_id,
-                }, context)       
-                   
+                }, context)          
+
             for payments in order['statement_ids']:
                 payment = payments[2]
                 self.add_payment(cr, uid, order_id, {
@@ -531,6 +531,7 @@ class pos_order(osv.osv):
                     'payment_name': _('return'),
                     'journal': cash_journal.id,
                 }, context=context)
+
             order_ids.append(order_id)
             self.signal_paid(cr, uid, [order_id])
         return order_ids
