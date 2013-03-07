@@ -389,7 +389,6 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
     module.ChooseReceiptPopupWidget = module.PopUpWidget.extend({
         template:'ChooseReceiptPopupWidget',
         show: function(){
-            console.log('show');
             this._super();
             this.renderElement();
             var self = this;
@@ -628,7 +627,6 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
             // initiates the connection to the payment terminal and starts the update requests
             this.start = function(){
                 var def = new $.Deferred();
-                console.log("START");
                 self.pos.proxy.payment_request(self.pos.get('selectedOrder').getDueLeft())
                     .done(function(ack){
                         if(ack === 'ok'){
@@ -638,7 +636,6 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
                         }else{
                             console.error('unknown payment request return value:',ack);
                         }
-                        console.log("START_END");
                         def.resolve();
                     });
                 return def;
@@ -646,10 +643,8 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
             
             // gets updated status from the payment terminal and performs the appropriate consequences
             this.update = function(){
-                console.log("UPDATE");
                 var def = new $.Deferred();
                 if(self.canceled){
-                    console.log("UPDATE_END");
                     return def.resolve();
                 }
                 self.pos.proxy.payment_status()
@@ -681,7 +676,6 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
                         }else{
                             console.error('unknown status value:',status.status);
                         }
-                        console.log("UPDATE_END");
                         def.resolve();
                     });
                 return def;
@@ -689,14 +683,12 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
             
             // cancels a payment.
             this.cancel = function(){
-                console.log("CANCEL");
                 if(!self.paid && !self.canceled){
                     self.canceled = true;
                     self.pos.proxy.payment_cancel();
                     self.pos_widget.screen_selector.set_current_screen(self.previous_screen);
                     self.queue.clear();
                 }
-                console.log("CANCEL_END");
                 return (new $.Deferred()).resolve();
             }
             
@@ -895,6 +887,8 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
             this.pos.bind('change:selectedOrder', this.change_selected_order, this);
             this.bindPaymentLineEvents();
             this.bind_orderline_events();
+            this.paymentlinewidgets = [];
+            this.focusedLine = null;
         },
         show: function(){
             this._super();
@@ -924,6 +918,7 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
                 });
 
             this.updatePaymentSummary();
+            this.line_refocus();
         },
         close: function(){
             this._super();
@@ -961,20 +956,39 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
             this.bind_orderline_events();
             this.renderElement();
         },
+        line_refocus: function(lineWidget){
+            if(lineWidget){
+                if(this.focusedLine !== lineWidget){
+                    this.focusedLine = lineWidget;
+                }
+            }
+            if(this.focusedLine){
+                this.focusedLine.focus();
+            }
+        },
         addPaymentLine: function(newPaymentLine) {
             var self = this;
-            var x = new module.PaymentlineWidget(null, {
-                    payment_line: newPaymentLine
+            var l = new module.PaymentlineWidget(this, {
+                    payment_line: newPaymentLine,
             });
-            x.on('delete_payment_line', self, function(r) {
+            l.on('delete_payment_line', self, function(r) {
                 self.deleteLine(r);
             });
-            x.appendTo(this.$('#paymentlines'));
-            this.$('.paymentline-amount input:last').focus();
+            l.appendTo(this.$('#paymentlines'));
+            this.paymentlinewidgets.push(l);
+            if(this.numpadState){
+                this.numpadState.resetValue();
+            }
+            this.line_refocus(l);
         },
         renderElement: function() {
             this._super();
             this.$('#paymentlines').empty();
+            for(var i = 0, len = this.paymentlinewidgets.length; i < len; i++){
+                this.paymentlinewidgets[i].destroy();
+            }
+            this.paymentlinewidgets = [];
+            
             this.currentPaymentLines.each(_.bind( function(paymentLine) {
                 this.addPaymentLine(paymentLine);
             }, this));
@@ -982,20 +996,22 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
         },
         deleteLine: function(lineWidget) {
         	this.currentPaymentLines.remove([lineWidget.payment_line]);
+            lineWidget.destroy();
         },
         updatePaymentSummary: function() {
             var currentOrder = this.pos.get('selectedOrder');
             var paidTotal = currentOrder.getPaidTotal();
-            var dueTotal = currentOrder.getTotal();
+            var dueTotal = currentOrder.getTotalTaxIncluded();
             var remaining = dueTotal > paidTotal ? dueTotal - paidTotal : 0;
             var change = paidTotal > dueTotal ? paidTotal - dueTotal : 0;
 
-            this.$('#payment-due-total').html(dueTotal.toFixed(2));
-            this.$('#payment-paid-total').html(paidTotal.toFixed(2));
-            this.$('#payment-remaining').html(remaining.toFixed(2));
-            this.$('#payment-change').html(change.toFixed(2));
-            if((currentOrder.selected_orderline == undefined))
-                remaining = 1
+            this.$('#payment-due-total').html(this.format_currency(dueTotal));
+            this.$('#payment-paid-total').html(this.format_currency(paidTotal));
+            this.$('#payment-remaining').html(this.format_currency(remaining));
+            this.$('#payment-change').html(this.format_currency(change));
+            if(currentOrder.selected_orderline === undefined){
+                remaining = 1;  // What is this ? 
+            }
                 
             if(this.pos_widget.action_bar){
                 this.pos_widget.action_bar.set_button_disabled('validation', remaining > 0);
