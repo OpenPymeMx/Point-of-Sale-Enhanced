@@ -23,8 +23,7 @@
                 <div id="leftpane">
                     <div id="placeholder-OrderWidget"></div>
                     <footer>
-                        <div id="placeholder-PaypadWidget"></div>
-                        <div id="placeholder-prodWidget"></div>
+                        <div id="placeholder-PaypadWidget"></div>                        
                         <div id="placeholder-NumpadWidget"></div>                        
                     </footer>
                 </div>
@@ -74,10 +73,10 @@
 
     <t t-name="PaypadWidget">
         <div id="paypad">
+            <div id="placeholder-prodWidget"></div>
         </div>
     </t>
     
-    <!-- widget prueba para produccion-->
     <t t-name="prodWidget">        
         <div id="prod">      
         </div>       
@@ -395,6 +394,11 @@
                 </div>
                 <div class="product-name">
                     <t t-esc="widget.model.get('name')"/>
+                    <t t-if="widget.model.get('code')">
+                        <span class="code-tag">
+                            <t t-esc="widget.model.get('code')"/>
+                        </span>
+                    </t>
                 </div>
             </a>
         </li>
@@ -547,10 +551,9 @@
         </button>
         <br />
     </t>
-    <!--Prueba Boton-->
+    
     <t t-name="prodButtonWidget">
-        <button class="prod-button" t-att-cash-register-id="1">
-            <t t-esc="Producir"/>
+        <button class="paypad-button" >
             Producir
         </button>
         <br />

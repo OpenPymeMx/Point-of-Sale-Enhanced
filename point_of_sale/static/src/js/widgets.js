@@ -115,13 +115,11 @@ function openerp_pos_widgets(instance, module){ //module is instance.point_of_sa
         renderElement: function() {
             var self = this;
             this._super();             
-            this.pos.get('cashRegisters').each(function(cashRegister) {
-                var button = new module.prodButtonWidget(self,{
-                    pos: self.pos,
-                    pos_widget : self.pos_widget,                    
-                });
-                button.appendTo(self.$el);
+            var button = new module.prodButtonWidget(self,{
+                pos: self.pos,
+                pos_widget : self.pos_widget,                    
             });
+            button.appendTo(self.$el);
         }
     });
 //***************************---------------********************************************    
@@ -140,8 +138,10 @@ function openerp_pos_widgets(instance, module){ //module is instance.point_of_sa
                     console.warn('TODO should not get there...?');
                     return;
                 }
-                self.pos.get('selectedOrder').addPaymentLine(self.cashRegister);
-                self.pos_widget.screen_selector.set_current_screen('payment');
+                if (self.pos.get('selectedOrder').getLastOrderline()) {
+                    self.pos.get('selectedOrder').addPaymentLine(self.cashRegister);  //TODO Prevent insert repeated blak lines
+                    self.pos_widget.screen_selector.set_current_screen('payment');
+                }
             });
         },
     });
@@ -165,13 +165,13 @@ function openerp_pos_widgets(instance, module){ //module is instance.point_of_sa
                     console.warn('TODO should not get there...?');
                     return;
                 }
-               
-               var currentOrder = self.pos.get('selectedOrder');
-               console.info('Current Orden: ',currentOrder);
-               self.pos.push_order(currentOrder.exportAsJSON());              
-             });//funcion $el
-        },//render
-    });//funcion boton
+                if (self.pos.get('selectedOrder').getLastOrderline()) {
+				   var currentOrder = self.pos.get('selectedOrder');
+				   self.pos.push_order(currentOrder.exportAsJSON());       
+                }
+             });
+        },
+    });
     
     module.OrderlineWidget = module.PosBaseWidget.extend({
         template: 'OrderlineWidget',

@@ -984,6 +984,9 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
         killTarget: function(){
             this.trigger('set_value',Number.NaN);
         },
+        resetValue: function(){
+            this.set({buffer:'0'});
+        },
     });
 
     module.Customer = Backbone.Model.extend({
