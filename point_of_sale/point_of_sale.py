@@ -36,13 +36,6 @@ import openerp.addons.product.product
 
 _logger = logging.getLogger(__name__)
 
-class pos_prueba(osv.osv):
-    _name="pos.prueba"
-    def test(self, cr, uid, ids, context=None):
-        print 'hola'               
-        return True
-pos_prueba()    
-
 class pos_config(osv.osv):
     _name = 'pos.config'
 
