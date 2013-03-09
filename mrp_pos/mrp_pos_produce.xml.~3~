@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<openerp>
+<data>
+
+    <record model="ir.ui.view" id="Mrp_pos">
+    	<field name="name">pos_order</field>
+    	<field name="model">pos.order</field>
+    	<field name="type">form</field>
+    	<field name="inherit_id" ref="point_of_sale.view_pos_pos_form" />               
+        <field name="arch" type="xml">        	    
+	    	<notebook>
+	        	<page string="Ext">
+	            	<group colspan="2" col="6" name="prueba" >	                	
+	                	<button name="test" states="confirmed" string="Testing" type="object"/>	                		                                       		                                        
+					</group>
+				</page>
+			</notebook>	
+		</field>
+    </record>
+</data>
+</openerp>
