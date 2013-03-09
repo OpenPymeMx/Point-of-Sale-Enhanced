@@ -486,14 +486,16 @@ class pos_order(osv.osv):
             order = tmp_order['data']
             partner_id = order['partner_id'] if 'partner_id' in order else False
             if 'order_id' in order:          
-                order_id = order['order_id'][0]          
-                self.write(cr, uid, order_id, {
-                    'user_id': order['user_id'] or False,
-                    'session_id': order['pos_session_id'],                    
-                    'pos_reference':order['name'],
-                    'partner_id':partner_id,                    
-                    }, context)              
-                self.update_lines(cr, uid, order_id, order['lines'], context)
+                order_id = order['order_id']
+                if order_id != []:
+                    self.write(cr, uid, order_id, {
+                        'user_id': order['user_id'] or False,
+                        'session_id': order['pos_session_id'],                    
+                        'pos_reference':order['name'],
+                        'partner_id':partner_id,                    
+                        }, context)              
+                    self.update_lines(cr, uid, order_id, order['lines'], context)
+                else: print "!!!!Error Perdida de id de la orden En actulizacion de productos MRP¡¡¡¡¡¡¡¡¡¡"
             else:
                 order_id = self.create(cr, uid, {
                     'name': order['name'],
@@ -502,10 +504,12 @@ class pos_order(osv.osv):
                     'lines': order['lines'],
                     'pos_reference':order['name'],
                     'partner_id':partner_id,
-                }, context)          
-            order_ids.append(order_id)
-            wf_service = netsvc.LocalService("workflow")
-            wf_service.trg_validate(uid, 'pos.order', order_id, 'draft', cr)
+                }, context)
+                temp= self.pool.get('pos.order').browse(cr,uid,order_id)
+                self.update_lines(cr, uid, temp.id, context)          
+                order_ids.append(order_id)
+                wf_service = netsvc.LocalService("workflow")
+                wf_service.trg_validate(uid, 'pos.order', order_id, 'draft', cr)
         return order_ids
     #*********************************************************************************
     def get_dic(self,seq, key):
