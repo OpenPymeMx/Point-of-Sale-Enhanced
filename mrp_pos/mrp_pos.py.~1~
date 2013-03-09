@@ -1,0 +1,31 @@
+import time
+from datetime import datetime
+
+import openerp.addons.decimal_precision as dp
+from openerp.osv import fields, osv
+from openerp.tools import DEFAULT_SERVER_DATETIME_FORMAT, DATETIME_FORMATS_MAP
+from openerp.tools import float_compare
+from openerp.tools.translate import _
+from openerp import netsvc
+from openerp import tools
+
+from dateutil.relativedelta import relativedelta
+from decimal import Decimal
+import logging
+import pdb
+import openerp
+import openerp.addons.product.product
+
+
+class mrp_pos(osv.osv):
+    """
+    Extencion de prueba  produccion en formulario de Pv
+    """
+    _name = 'pos.order'    
+    _inherit = 'pos.order'
+    _description = 'Extencion de orden de produccion'
+    
+    _columns = {
+                'produce': fields.boolean('produce'),                
+                }
+mrp_pos()

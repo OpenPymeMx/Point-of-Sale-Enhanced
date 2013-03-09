@@ -1,0 +1,139 @@
+import time
+from datetime import datetime
+
+import openerp.addons.decimal_precision as dp
+from openerp.osv import fields, osv
+from openerp.tools import DEFAULT_SERVER_DATETIME_FORMAT, DATETIME_FORMATS_MAP
+from openerp.tools import float_compare
+from openerp.tools.translate import _
+from openerp import netsvc
+from openerp import tools
+
+
+
+class pos_order(osv.osv):
+    """
+    Extencion de orueba de orden de produccion
+    """
+    _name = 'pos.order'
+    _inherit = 'pos.order'
+    
+    
+    _description = 'Extencion de orden de produccion'
+    #Elaboracion de lista de produccion pre-generada
+    def test(self, cr, uid, ids, context=None):
+        pos_order = self.browse(cr, uid, ids, context=None)[0]                
+        for line in pos_order.lines:
+            
+            bom_id = self.pool.get('mrp.bom')._bom_find(cr,uid,line.product_id.id,line.product_id.uom_id.id)
+            if bom_id:   
+                mrp_obj=self.pool.get('mrp.production').create(cr, uid, {
+                               'product_id':"3",                                                        
+                               'bom_id':"1",
+                               'product_uom':"1",
+                               'product_qty':"1",
+                               },context=None)                       
+        return True
+    
+    #Elaboracion de lista de produccion a partir de la orden draf de venta generada por el punto de venta
+    #en el Boton  de genearar comanda
+    def produces(self, cr, uid, ids, context=None):    
+        pos_order = self.browse(cr, uid, ids, context=None)[0]
+        for line in pos_order.lines:
+            
+            bom_id = self.pool.get('mrp.bom')._bom_find(cr,uid,line.product_id.id,line.product_id.uom_id.id)
+            if bom_id:   
+                mrp_obj=self.pool.get('mrp.production').create(cr, uid, {
+                               'product_id':line.product_id.id,                                                        
+                               'bom_id':bom_id,
+                               'product_uom':line.product_id.uom_id.id,
+                               'product_qty':line.qty
+                                                                   },context=None)
+        return True
+    
+    #prueba elaborada para ligar un js con un py
+    def hola(self, cr, uid, orders, context=None):
+        print "hola aqui"        
+        return 'Hola mundano'
+    
+    
+    #*********************************prueba de modificacion en ****************************
+    #--------------------------------Genera  orden venta en borrador-----------------------
+    def create_from_ui(self, cr, uid, orders, context=None):
+        #_logger.info("orders: %r", orders)
+        order_ids = []
+        for tmp_order in orders:
+            order = tmp_order['data']
+            partner_id = order['partner_id'] if 'partner_id' in order else False
+            if 'order_id' in order:          
+                order_id = order['order_id'][0]          
+                self.write(cr, uid, order_id, {
+                    'user_id': order['user_id'] or False,
+                    'session_id': order['pos_session_id'],                    
+                    'pos_reference':order['name'],
+                    'partner_id':partner_id,                    
+                    }, context)              
+                self.update_lines(cr, uid, order_id, order['lines'], context)
+            else:
+                order_id = self.create(cr, uid, {
+                    'name': order['name'],
+                    'user_id': order['user_id'] or False,
+                    'session_id': order['pos_session_id'],
+                    'lines': order['lines'],
+                    'pos_reference':order['name'],
+                    'partner_id':partner_id,
+                }, context)          
+            order_ids.append(order_id)
+            wf_service = netsvc.LocalService("workflow")
+            wf_service.trg_validate(uid, 'pos.order', order_id, 'draft', cr)
+        return order_ids
+    #*********************************************************************************
+    def get_dic(self,seq, key):
+        return dict((d[key], dict(d, index=index)) for (index, d) in enumerate(seq))
+    
+    def update_lines(self, cr, uid, order_id, lines, context = None):
+        order_lines = self.pool.get('pos.order').browse(cr, uid, order_id, context).lines
+        #TODO
+          
+        #ordenes nuevas
+        lines_list = []
+        for line in lines:
+            lines_list.append(line[2])        
+        
+        #ordenes anteriores
+        lines_order=[]
+        for line1 in order_lines:
+            d= {                            
+                        'discount':line1.discount,
+                        'price_unit':line1.price_unit,
+                        'product_id':line1.product_id.id,
+                        'qty':line1.qty,
+                        'id':line1.id,                         
+                    }
+            lines_order.append(d)
+        dic_lines = self.get_dic(lines_order,'product_id')
+        
+               
+        print "Inicio: "        
+        
+        print "Dicionario de diccionarios: ",dic_lines  
+        
+        for lin in lines_list:
+           print "Orden actual : ",lines_order
+           print "Intentando grabar producto : ",lin
+           #extraer el dato de id de linea para comparar               
+           if lin['product_id']  not in  dic_lines:
+              lin['order_id'] = order_id              
+              print "Agregado linea de producto: ",lin
+              self.pool.get('pos.order.line').create(cr, uid, lin, context)
+           else:
+               print "Registro actulizado en: linea de producto: "
+               self.pool.get('pos.order.line').write(cr, uid,dic_lines[lin['product_id']]['id'], {                               
+                          'discount':lin['discount'],
+                          'price_unit':lin['price_unit'],
+                          'qty':lin['qty'],
+                      }, context)  
+        print "Fin" 
+        return "True"
+    
+pos_order()
