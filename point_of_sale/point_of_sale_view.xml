@@ -19,7 +19,7 @@
                 <form string="Point of Sale Orders" version="7.0">
                     <header>
                         <button name="%(action_pos_payment)d" string="Payment" class="oe_highlight" type="action" states="draft" context="{'pos_session_id' : session_id}"/>
-                        <button name="action_invoice" string="Invoice" type="object" states="paid" attrs="{'readonly': [('partner_id','=',False)]}"/>                        
+                        <button name="action_invoice" string="Invoice" type="object" states="paid" attrs="{'readonly': [('partner_id','=',False)]}"/>
                         <button name="refund" string="Return Products" type="object" 
                             attrs="{'invisible':[('state','=','draft')]}"/>
                         <button name="%(action_report_pos_receipt)d" string="Reprint" type="action" states="paid,done,invoiced"/>
@@ -533,7 +533,7 @@
             <field name="arch" type="xml">
                 <graph  type="bar" string="Sales by User Margin" orientation="horizontal">
                     <field name="product_name" />
-                    <field name="total" operator="+"/>                    
+                    <field name="total" operator="+"/>
                 </graph>
             </field>
          </record>
