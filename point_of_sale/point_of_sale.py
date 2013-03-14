@@ -601,7 +601,7 @@ class pos_order(osv.osv):
         else: 
             return False      
         
-        return True   
+        return True
 
     def unlink(self, cr, uid, ids, context=None):
         for rec in self.browse(cr, uid, ids, context=context):

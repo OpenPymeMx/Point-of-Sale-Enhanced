@@ -312,6 +312,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                 })
                 .done(function(order_id){
                     //TODO: Encontrar la forma de no usar ciclos anidados
+
                     // Get current order name
                     var name = [order][0].data.name;
                     
