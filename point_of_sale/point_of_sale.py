@@ -478,11 +478,7 @@ class pos_order(osv.osv):
     _name = "pos.order"
     _description = "Point of Sale"
     _order = "id desc"
-<<<<<<< HEAD
-    #--------------------------------Genera  orden venta en borrador-----------------------
-=======
-    
->>>>>>> 7522a03... Added payment behaivor on create_from_ui funciton for PoS orders
+
     def create_from_ui(self, cr, uid, orders, context=None):
         #_logger.info("orders: %r", orders)
         order_ids = []
@@ -508,17 +504,41 @@ class pos_order(osv.osv):
                     'lines': order['lines'],
                     'pos_reference':order['name'],
                     'partner_id':partner_id,
-<<<<<<< HEAD
-                }, context)
-                temp= self.pool.get('pos.order').browse(cr,uid,order_id)
-                self.update_lines(cr, uid, temp.id, context)          
-                order_ids.append(order_id)
-                wf_service = netsvc.LocalService("workflow")
-                wf_service.trg_validate(uid, 'pos.order', order_id, 'draft', cr)
+                }, context)       
+                   
+            for payments in order['statement_ids']:
+                payment = payments[2]
+                self.add_payment(cr, uid, order_id, {
+                    'amount': payment['amount'] or 0.0,
+                    'payment_date': payment['name'],
+                    'statement_id': payment['statement_id'],
+                    'payment_name': payment.get('note', False),
+                    'journal': payment['journal_id']
+                }, context=context)
+
+            if order['amount_return'] > 0:
+                session = self.pool.get('pos.session').browse(cr, uid, order['pos_session_id'], context=context)
+                cash_journal = session.cash_journal_id
+                cash_statement = False
+                if not cash_journal:
+                    cash_journal_ids = filter(lambda st: st.journal_id.type=='cash', session.statement_ids)
+                    if not len(cash_journal_ids):
+                        raise osv.except_osv( _('error!'),
+                            _("No cash statement found for this session. Unable to record returned cash."))
+                    cash_journal = cash_journal_ids[0].journal_id
+                self.add_payment(cr, uid, order_id, {
+                    'amount': -order['amount_return'],
+                    'payment_date': time.strftime('%Y-%m-%d %H:%M:%S'),
+                    'payment_name': _('return'),
+                    'journal': cash_journal.id,
+                }, context=context)
+            order_ids.append(order_id)
+            self.signal_paid(cr, uid, [order_id])
         return order_ids
-    #*********************************************************************************
+
     def get_dic(self,seq, key):
         return dict((d[key], dict(d, index=index)) for (index, d) in enumerate(seq))
+    
     def get_current_lines(self,order_lines):
         #calcula ordenes actuales        
         current_lines=[]
@@ -577,40 +597,6 @@ class pos_order(osv.osv):
         print "Fin" 
         return "True"   
             
-=======
-                }, context)       
-                   
-            for payments in order['statement_ids']:
-                payment = payments[2]
-                self.add_payment(cr, uid, order_id, {
-                    'amount': payment['amount'] or 0.0,
-                    'payment_date': payment['name'],
-                    'statement_id': payment['statement_id'],
-                    'payment_name': payment.get('note', False),
-                    'journal': payment['journal_id']
-                }, context=context)
-
-            if order['amount_return'] > 0:
-                session = self.pool.get('pos.session').browse(cr, uid, order['pos_session_id'], context=context)
-                cash_journal = session.cash_journal_id
-                cash_statement = False
-                if not cash_journal:
-                    cash_journal_ids = filter(lambda st: st.journal_id.type=='cash', session.statement_ids)
-                    if not len(cash_journal_ids):
-                        raise osv.except_osv( _('error!'),
-                            _("No cash statement found for this session. Unable to record returned cash."))
-                    cash_journal = cash_journal_ids[0].journal_id
-                self.add_payment(cr, uid, order_id, {
-                    'amount': -order['amount_return'],
-                    'payment_date': time.strftime('%Y-%m-%d %H:%M:%S'),
-                    'payment_name': _('return'),
-                    'journal': cash_journal.id,
-                }, context=context)
-            order_ids.append(order_id)
-            self.signal_paid(cr, uid, [order_id])
-        return order_ids
-
->>>>>>> 7522a03... Added payment behaivor on create_from_ui funciton for PoS orders
     def unlink(self, cr, uid, ids, context=None):
         for rec in self.browse(cr, uid, ids, context=context):
             if rec.state not in ('draft','cancel'):
