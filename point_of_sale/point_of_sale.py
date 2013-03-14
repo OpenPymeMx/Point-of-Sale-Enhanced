@@ -504,13 +504,8 @@ class pos_order(osv.osv):
                     'lines': order['lines'],
                     'pos_reference':order['name'],
                     'partner_id':partner_id,
-<<<<<<< HEAD
-                }, context)       
-                   
-=======
                 }, context)          
-                
->>>>>>> fc3716d... Added payment logic on create_from_ui function
+
             for payments in order['statement_ids']:
                 payment = payments[2]
                 self.add_payment(cr, uid, order_id, {
@@ -538,7 +533,7 @@ class pos_order(osv.osv):
                     'journal': cash_journal.id,
                 }, context=context)
             order_ids.append(order_id)
-            self.signal_paid(cr, uid, [order_id])
+            self.signal_paid(cr, uid, order_ids)
         return order_ids
 
     def get_dic(self,seq, key):
