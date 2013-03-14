@@ -934,10 +934,4 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
         model: module.Customer,
     });
 
-    module.prod = Backbone.Model.extend({
-    });
-
-    module.prodCollection = Backbone.Collection.extend({
-        model: module.prod,
-    });
 }

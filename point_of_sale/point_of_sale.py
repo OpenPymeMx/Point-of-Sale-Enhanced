@@ -504,8 +504,13 @@ class pos_order(osv.osv):
                     'lines': order['lines'],
                     'pos_reference':order['name'],
                     'partner_id':partner_id,
+<<<<<<< HEAD
                 }, context)       
                    
+=======
+                }, context)          
+                
+>>>>>>> fc3716d... Added payment logic on create_from_ui function
             for payments in order['statement_ids']:
                 payment = payments[2]
                 self.add_payment(cr, uid, order_id, {
