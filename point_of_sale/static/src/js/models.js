@@ -243,6 +243,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
             if( this.get('selectedOrder') === removed_order){
                 this.set({ selectedOrder: this.get('orders').last() });
             }
+             alert("Sin producto");
         },
         
         // saves the order locally and try to send it to the backend. 'record' is a bizzarely defined JSON version of the Order
@@ -933,5 +934,4 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
     module.CustomerCollection = Backbone.Collection.extend({
         model: module.Customer,
     });
-
 }
