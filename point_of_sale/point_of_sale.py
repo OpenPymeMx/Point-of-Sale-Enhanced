@@ -551,20 +551,8 @@ class pos_order(osv.osv):
     def get_dic(self,seq, key):
         return dict((d[key], dict(d, index=index)) for (index, d) in enumerate(seq))
     
-<<<<<<< HEAD
-    def get_current_lines(self, cr, uid, order_id, context):
-        
-        """try:
-                if order_id[0] != []:
-                    order_id=order_id[0]                
-        except TypeError, te:
-                print 'Dato: ',order_id """
-        
-        order_lines= self.pool.get('pos.order').browse(cr, uid, order_id, context).lines        
-=======
     def get_current_lines(self, cr, uid, order_id, context = None):        
         order_lines = self.pool.get('pos.order').browse(cr, uid, order_id, context).lines        
->>>>>>> 5eedbba... Bug arreglado en punto de venta funcional con produccion en estado esperando materiales
         #calcula ordenes actuales              
         current_lines = []
         for line in order_lines:
