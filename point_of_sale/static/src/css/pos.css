@@ -311,7 +311,10 @@
     border-top: 1px solid #efefef;
     font-size: 14px;
 }
-.point-of-sale #prodWidget button {
+.point-of-sale #prod {
+    margin: 0px -6px 4px -2px;
+}
+.point-of-sale #prod button {
     height: 54px;
     width: 208px;
     margin: 0 -3px;
@@ -607,10 +610,10 @@
 .point-of-sale .product .code-tag {
     position: absolute;
     top: 2px;
-    left: 2px;
+    left: 0px;
     vertical-align: top;
     line-height: 13px;
-    padding: 2px 5px;
+    padding: 2px 2px;
 }
 
 .point-of-sale .product .price-tag {
