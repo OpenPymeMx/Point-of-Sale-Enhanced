@@ -311,24 +311,26 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                     self._flush(index+1);
                 })
                 .done(function(order_id){
-                    //remove from db if success
-                    self.db.remove_order(order.id);
-                    self._flush(index);
-                    
+                    //TODO: Encontrar la forma de no usar ciclos anidados
                     // Get current order name
                     var name = [order][0].data.name;
                     
                     // Add order_id to javascript object
                     // models contain the current orders on javascript
                     models = self.get('orders').models;
-                    for (var i = 0, l = models.length; i<l; i++) {
-                        model = models[i];
-                        
-                        if (model.get('name') == name) {
-                            model.set('order_id', order_id);
+                    
+                    for (var i = 0, l = order_id.length; i < l; i++) {
+                        for (var x = 0, y = models.length; x < y; x++) {
+                            model = models[i];
+                            
+                            if (model.get('name') == name) {
+                                model.set('order_id', order_id[i]);
+                            }
                         }
-                        //console.info('Order_id: ', model.get('order_id'));
                     }
+                    //remove from db if success
+                    self.db.remove_order(order.id);
+                    self._flush(index);
                 });
         },
 

@@ -484,8 +484,11 @@ class pos_order(osv.osv):
         order_ids = []
         for tmp_order in orders:
             order = tmp_order['data']
-            if 'order_id' in order: order_id=self.update_sales(cr, uid, order, context)
-            else: order_id=self.create_sales(cr, uid, order, context)
+            partner_id = order['partner_id'] if 'partner_id' in order else False
+            if 'order_id' in order: 
+                order_id = self.update_sales(cr, uid, order, partner_id, context)
+            else: 
+                order_id = self.create_sales(cr, uid, order, partner_id, context)
                 
             for payments in order['statement_ids']:
                 payment = payments[2]
@@ -513,70 +516,90 @@ class pos_order(osv.osv):
                     'payment_name': _('return'),
                     'journal': cash_journal.id,
                 }, context=context)
-            order_ids.append(order_id)            
-            self.signal_paid(cr, uid, order_id)
+            order_ids.append(order_id)
+            """try:
+             order_idf = order_id[0]
+            except TypeError, te:
+                order_id=[order_id]"""             
+            self.signal_paid(cr, uid, order_ids)
         return order_ids
     
-    def update_sales(self, cr, uid, order, context=None):
-        partner_id = order['partner_id'] if 'partner_id' in order else False
+    def update_sales(self, cr, uid, order, partner_id, context = None):
         order_id = order['order_id']
+        
+        """try: 
+            if order_id[0] != []:
+                order_id=order_id[0]                
+        except TypeError, te:
+            print 'Dato: ',order_id"""
+            
         if order_id != []:
-                   self.write(cr, uid, order_id, {
-                       'user_id': order['user_id'] or False,
-                       'session_id': order['pos_session_id'],                    
-                       'pos_reference':order['name'],
-                       'partner_id':partner_id,                    
-                       }, context)              
-                   self.update_lines(cr, uid, order_id, order['lines'], context)
+            actualiza=self.write(cr, uid, order_id, {
+                           'user_id': order['user_id'] or False,
+                           'session_id': order['pos_session_id'],                    
+                           'pos_reference':order['name'],
+                           'partner_id':partner_id,                                               
+                           }, context)
+            self.update_lines(cr, uid, order_id, order['lines'], context)
         else:
-            print "!!!!Error Perdida de id de la orden En actualizacion de productos¡¡¡¡¡¡¡¡¡¡"
-            print "!!ORDEN ACTUAL : ", tmp_order,"¡¡¡"
-            return False
+                print "!!!!Error Perdida de id de la orden En actualizacion de productos¡¡¡¡¡¡¡¡¡¡"
+                print "!!ORDEN ACTUAL : ", tmp_order,"¡¡¡"
+                return False
         return order_id
     
-    def create_sales(self, cr, uid, order, context=None):
+    def create_sales(self, cr, uid, order, partner_id, context = None):
         order_id = self.create(cr, uid, {
                     'name': order['name'],
                     'user_id': order['user_id'] or False,
                     'session_id': order['pos_session_id'],
                     'lines': order['lines'],
-                    'pos_reference':order['name'],                    
+                    'pos_reference':order['name'],
+                    'partner_id':partner_id,                    
                 }, context)          
-        temp= self.pool.get('pos.order').browse(cr,uid,order_id)        
-        self.update_lines(cr, uid, temp.id, context)
+        #temp = self.pool.get('pos.order').browse(cr, uid, order_id)        
+        #self.update_lines(cr, uid, temp.id, context)
         return order_id
     
     def get_dic(self,seq, key):
         return dict((d[key], dict(d, index=index)) for (index, d) in enumerate(seq))
     
-    def get_current_lines(self,order_lines):
+    def get_current_lines(self, cr, uid, order_id, context):
+        
+        """try:
+                if order_id[0] != []:
+                    order_id=order_id[0]                
+        except TypeError, te:
+                print 'Dato: ',order_id """
+        
+        order_lines= self.pool.get('pos.order').browse(cr, uid, order_id, context).lines        
         #calcula ordenes actuales              
         current_lines=[]
-        for line1 in order_lines:
-            print line1
+        for line in order_lines:
+            print line,
             d= {                            
-                        'discount':line1.discount,
-                        'price_unit':line1.price_unit,
-                        'product_id':line1.product_id.id,
-                        'qty':line1.qty,
-                        'id':line1.id,                         
+                        'discount':line.discount,
+                        'price_unit':line.price_unit,
+                        'product_id':line.product_id.id,
+                        'qty':line.qty,
+                        'id':line.id,                         
                     }
             current_lines.append(d)
         return current_lines
         
     def update_lines(self, cr, uid, order_id, lines = None, context = None):
-        
+        """
+        Actuliza las lineas de pos.order
+        """
         #TODO optimizar actualizar,añador y remover lineas de productos
         #ordenes nuevas
         if lines !=None:
             new_lines = []
-            for line in lines:
+            for line in lines:                                    
                 new_lines.append(line[2])        
             dic_new_lines = self.get_dic(new_lines,'product_id')
             
-            #if order_id[0]!= [] : order_id = order_id[0]
-            order_lines = self.pool.get('pos.order.line').browse(cr, uid, order_id, context)
-            current_lines=self.get_current_lines(order_lines)            
+                        
+            current_lines=self.get_current_lines(cr, uid, order_id, context )            
             dic_current = self.get_dic(current_lines,'product_id')
             
             print "Dicionario de diccionarios: ",dic_current
@@ -589,6 +612,12 @@ class pos_order(osv.osv):
                 a = dic_current[element]
                 print "Elemento a eliminar: ",a
                 self.pool.get('pos.order.line').unlink(cr, uid,a['id'],context)
+          
+            """try:
+                if order_id[0] != []:
+                    order_id=order_id[0]                
+            except TypeError, te:
+                print 'Dato: ',order_id"""
           
             for lin in new_lines:
                print "Orden actual : ",current_lines
