@@ -201,6 +201,10 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                     );
                 }).then(function(products){
                     self.db.add_products(products);
+                    
+                    return self.fetch('pos.order', ['name','session_id', 'id', 'lines','date_order', 'pos_reference', 'partner_id', 'creationDate'], [['state', '=', 'draft']]);
+                }).then(function(orders){
+                    self.load_orders(orders);
 
                     return self.fetch(
                         'account.bank.statement',
@@ -213,6 +217,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                         journals.push(statement.journal_id[0])
                     });
                     self.set('bank_statements', bank_statements);
+                    
                     return self.fetch('account.journal', undefined, [['id','in', journals]]);
                 }).then(function(journals){
                     self.set('journals',journals);
@@ -392,6 +397,32 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
             }
             self.get('products').reset(product);
             return true;
+        },
+        
+        load_orders: function(orders){
+            var self = this;
+            
+            if(!orders instanceof Array){
+                orders = [orders];
+            }
+            
+            for(i = 0, len = orders.length; i < len; i++){
+                (function(){
+                    var order = orders[i];                                    
+                    var new_order = new module.Order({creationDate:order.date_order, name:order.pos_reference, partner_id:order.partner_id, order_id:order.id, pos:self});
+                    //Get current lines from remote database                         
+                    self.fetch('pos.order.line', ['product_id', 'qty', 'discount'], [['order_id', '=', order.id]])
+                        .then(function(lines) {
+                            for (j = 0, lines_len = lines.length; j < lines_len; j++) {
+                                line = lines[j];
+                                product = self.db.get_product_by_id(line.product_id[0]);                       
+                                new_order.addProduct(new module.Product(product), {quantity:line.qty});
+                                if (line.discount > 0) {new_order.getSelectedLine().set_discount(line.discount)}
+                            }
+                        });
+                    self.get('orders').add(new_order);
+                })();
+            }            
         },
     });
 
@@ -679,13 +710,14 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
     // automaticaly once an order is completed and sent to the server.
     module.Order = Backbone.Model.extend({
         initialize: function(attributes){
-            Backbone.Model.prototype.initialize.apply(this, arguments);
+            Backbone.Model.prototype.initialize.apply(this, arguments);            
             this.set({
-                creationDate:   new Date(),
+                creationDate:   attributes.creationDate != null ? instance.web.str_to_datetime(attributes.creationDate) : new Date(),
                 orderLines:     new module.OrderlineCollection(),
                 paymentLines:   new module.PaymentlineCollection(),
-                name:           "Order " + this.generateUniqueId(),
-                client:         null,
+                name:           attributes.name != null ? attributes.name : "Order " + this.generateUniqueId(),
+                client:         attributes.partner_id != null ? attributes.partner_id :   null,
+                order_id:       attributes.order_id || null
             });
             this.pos =     attributes.pos; 
             this.selected_orderline = undefined;

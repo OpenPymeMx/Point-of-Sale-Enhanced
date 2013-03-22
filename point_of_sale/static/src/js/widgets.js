@@ -943,7 +943,19 @@ function openerp_pos_widgets(instance, module){ //module is instance.point_of_sa
                     new_order_button.selectOrder();
                 }, self);
 
-                self.pos.get('orders').add(new module.Order({ pos: self.pos }));
+                orders = self.pos.get('orders');
+                if (orders.length) {
+                    for (i = 0, len = orders.length; i < len; i++) {
+                        var new_order_button = new module.OrderButtonWidget(null, {
+                            order: orders.at(i),
+                            pos: self.pos
+                        });
+                        new_order_button.appendTo($('#orders'));
+                        new_order_button.selectOrder();                       
+                    }
+                }else {
+                    self.pos.get('orders').add(new module.Order({ pos: self.pos }));
+                }
 
                 self.build_widgets();
 
