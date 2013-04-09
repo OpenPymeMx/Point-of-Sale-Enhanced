@@ -21,13 +21,15 @@
 
 
 {
-    'name': 'mrp_ext',
+    'name': 'POS_MRP(Point of sale extencion with  mrp)',
     'version': '1.0',
     'category': 'Manufacturing',
     'description': """
-Extencion de Mrp.
+POS_MRP [Fedrojesa S.A.]
 ==================================================================
-Extencion prueba de orden de produccion.
+Extencion in point of sale to do producion order in state waiting produccion from order in point of sale,
+this module is beta vercion.
+
 
     """,
     'author': 'Fedrogesa',

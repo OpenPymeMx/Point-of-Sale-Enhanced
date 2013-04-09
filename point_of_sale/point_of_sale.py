@@ -485,119 +485,123 @@ class pos_order(osv.osv):
         for tmp_order in orders:
             order = tmp_order['data']
             partner_id = order['partner_id'] if 'partner_id' in order else False
-            if 'order_id' in order:          
-                order_id = order['order_id']
-                if order_id != []:
-                    self.write(cr, uid, order_id, {
-                        'user_id': order['user_id'] or False,
-                        'session_id': order['pos_session_id'],                    
-                        'pos_reference':order['name'],
-                        'partner_id':partner_id,                    
-                        }, context)              
-                    self.update_lines(cr, uid, order_id, order['lines'], context)
-                else: print "!!!!Error Perdida de id de la orden En actulizacion de productos MRP¡¡¡¡¡¡¡¡¡¡"
-            else:
-                order_id = self.create(cr, uid, {
+            if 'order_id' in order: 
+                order_id = self.update_order(cr, uid, order, partner_id, context)
+            else: 
+                order_id = self.create_order(cr, uid, order, partner_id, context)
+                
+            for payments in order['statement_ids']:
+                payment = payments[2]
+                self.add_payment(cr, uid, order_id, {
+                    'amount': payment['amount'] or 0.0,
+                    'payment_date': payment['name'],
+                    'statement_id': payment['statement_id'],
+                    'payment_name': payment.get('note', False),
+                    'journal': payment['journal_id']
+                }, context=context)
+    
+            if order['amount_return'] > 0:
+                session = self.pool.get('pos.session').browse(cr, uid, order['pos_session_id'], context=context)
+                cash_journal = session.cash_journal_id
+                cash_statement = False
+                if not cash_journal:
+                    cash_journal_ids = filter(lambda st: st.journal_id.type=='cash', session.statement_ids)
+                    if not len(cash_journal_ids):
+                        raise osv.except_osv( _('error!'),
+                            _("No cash statement found for this session. Unable to record returned cash."))
+                    cash_journal = cash_journal_ids[0].journal_id
+                self.add_payment(cr, uid, order_id, {
+                    'amount': -order['amount_return'],
+                    'payment_date': time.strftime('%Y-%m-%d %H:%M:%S'),
+                    'payment_name': _('return'),
+                    'journal': cash_journal.id,
+                }, context=context)
+            order_ids.append(order_id)          
+            self.signal_paid(cr, uid, order_ids)
+        return order_ids
+    
+    def update_order(self, cr, uid, order, partner_id, context = None):
+        order_id = order['order_id']
+            
+        if order_id != []:
+            self.write(cr, uid, order_id, {
+                           'user_id': order['user_id'] or False,
+                           'session_id': order['pos_session_id'],                    
+                           'pos_reference':order['name'],
+                           'partner_id':partner_id,                                               
+                           }, context)
+            self.update_lines(cr, uid, order_id, order['lines'], context)
+        else:
+                print "!!!!Error Perdida de id de la orden En actualizacion de productos¡¡¡¡¡¡¡¡¡¡"
+                print "!!ORDEN ACTUAL : ", tmp_order,"¡¡¡"
+                return False
+        return order_id
+    
+    def create_order(self, cr, uid, order, partner_id, context = None):
+        order_id = self.create(cr, uid, {
                     'name': order['name'],
                     'user_id': order['user_id'] or False,
                     'session_id': order['pos_session_id'],
                     'lines': order['lines'],
                     'pos_reference':order['name'],
-                    'partner_id':partner_id,
+                    'partner_id':partner_id,                    
                 }, context)          
-                temp= self.pool.get('pos.order').browse(cr,uid,order_id)
-                self.update_lines(cr, uid, temp.id, context) 
-                
-                for payments in order['statement_ids']:
-                    payment = payments[2]
-                    self.add_payment(cr, uid, order_id, {
-                        'amount': payment['amount'] or 0.0,
-                        'payment_date': payment['name'],
-                        'statement_id': payment['statement_id'],
-                        'payment_name': payment.get('note', False),
-                        'journal': payment['journal_id']
-                    }, context=context)
+        return order_id
     
-                if order['amount_return'] > 0:
-                    session = self.pool.get('pos.session').browse(cr, uid, order['pos_session_id'], context=context)
-                    cash_journal = session.cash_journal_id
-                    cash_statement = False
-                    if not cash_journal:
-                        cash_journal_ids = filter(lambda st: st.journal_id.type=='cash', session.statement_ids)
-                        if not len(cash_journal_ids):
-                            raise osv.except_osv( _('error!'),
-                                _("No cash statement found for this session. Unable to record returned cash."))
-                        cash_journal = cash_journal_ids[0].journal_id
-                    self.add_payment(cr, uid, order_id, {
-                        'amount': -order['amount_return'],
-                        'payment_date': time.strftime('%Y-%m-%d %H:%M:%S'),
-                        'payment_name': _('return'),
-                        'journal': cash_journal.id,
-                    }, context=context)
-                order_ids.append(order_id)
-                #TODO: function temp only by new orders
-                self.signal_paid(cr, uid, [order_id])
-        return order_ids
-
     def get_dic(self,seq, key):
         return dict((d[key], dict(d, index=index)) for (index, d) in enumerate(seq))
-    def get_current_lines(self,order_lines):
-        #calcula ordenes actuales        
-        current_lines=[]
-        for line1 in order_lines:
-            d= {                            
-                        'discount':line1.discount,
-                        'price_unit':line1.price_unit,
-                        'product_id':line1.product_id.id,
-                        'qty':line1.qty,
-                        'id':line1.id,                         
-                    }
+    
+    def get_current_lines(self, cr, uid, order_id, context = None):        
+        order_lines = self.pool.get('pos.order').browse(cr, uid, order_id, context).lines        
+        #calcula ordenes actuales              
+        current_lines = []
+        for line in order_lines:
+            d= {'discount':line.discount,
+                'price_unit':line.price_unit,
+                'product_id':line.product_id.id,
+                'qty':line.qty,
+                'id':line.id}
             current_lines.append(d)
+            
         return current_lines
         
-    def update_lines(self, cr, uid, order_id, lines, context = None):
-        
+    def update_lines(self, cr, uid, order_id, lines = None, context = None):
+        """
+        Actuliza las lineas de pos.order
+        """
         #TODO optimizar actualizar,añador y remover lineas de productos
         #ordenes nuevas
-        new_lines = []
-        for line in lines:
-            new_lines.append(line[2])        
-        dic_new_lines = self.get_dic(new_lines,'product_id')
+        if lines:
+            new_lines = []
+            for line in lines:                                    
+                new_lines.append(line[2])        
+            dic_new_lines = self.get_dic(new_lines,'product_id')
+            
+            current_lines = self.get_current_lines(cr, uid, order_id, context)            
+            dic_current = self.get_dic(current_lines,'product_id')
+            
+            #conjuntos eliminacion de ordenes que ya no estan en las nuevas ordes        
+            x = set(dic_new_lines)       
+            y = set(dic_current)
+            z = y-x
+            for element in z:            
+                a = dic_current[element]
+                self.pool.get('pos.order.line').unlink(cr, uid,a['id'],context)
+          
+            for lin in new_lines:
+               if lin['product_id']  not in  dic_current:
+                  lin['order_id'] = order_id
+                  self.pool.get('pos.order.line').create(cr, uid, lin, context)
+               else: 
+                   self.pool.get('pos.order.line').write(cr, uid,dic_current[lin['product_id']]['id'], {                               
+                              'discount':lin['discount'],
+                              'price_unit':lin['price_unit'],
+                              'qty':lin['qty'],
+                          }, context)
+        else: 
+            return False      
         
-        order_lines = self.pool.get('pos.order').browse(cr, uid, order_id, context).lines
-        current_lines=self.get_current_lines(order_lines)
-        dic_current = self.get_dic(current_lines,'product_id')
-        
-               
-        print "Inicio: "        
-        
-        print "Dicionario de diccionarios: ",dic_current
-        
-        #conjuntos eliminacion de ordenes que ya no estan en las nuevas ordes        
-        x = set(dic_new_lines)       
-        y = set(dic_current)
-        z = y-x
-        for element in z:            
-            a = dic_current[element]
-            print "Elemento a eliminar: ",a
-            self.pool.get('pos.order.line').unlink(cr, uid,a['id'],context)
-      
-        for lin in new_lines:
-           print "Orden actual : ",current_lines
-           print "Intentando grabar producto : ",lin               
-           if lin['product_id']  not in  dic_current:
-              lin['order_id'] = order_id              
-              print "Agregado linea de producto: ",lin
-              self.pool.get('pos.order.line').create(cr, uid, lin, context)
-           else:
-               print "Registro actulizado en: linea de producto: ",lin
-               self.pool.get('pos.order.line').write(cr, uid,dic_current[lin['product_id']]['id'], {                               
-                          'discount':lin['discount'],
-                          'price_unit':lin['price_unit'],
-                          'qty':lin['qty'],
-                      }, context)       
-        print "Fin" 
-        return "True"   
+        return True
 
     def unlink(self, cr, uid, ids, context=None):
         for rec in self.browse(cr, uid, ids, context=context):
