@@ -1,6 +1,6 @@
 SRC_DIR=.
 
-all: clean sloc test flakes lint clone
+all: clean sloc flakes lint clone
 
 sloc:
 	sloccount --duplicates --wide --details $(SRC_DIR) | fgrep -v .git > sloccount.sc || :
