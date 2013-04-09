@@ -13,6 +13,7 @@ flakes:
 
 lint:
 	find $(SRC_DIR) -name *.py|egrep -v '^./tests/' | xargs pylint --output-format=parseable --reports=y > pylint.log || :
+	pep8 --ignore=E501 --repeat --show-source . > pep8.log || :
 
 clone:
 	clonedigger --cpd-output $(SRC_DIR) || :
