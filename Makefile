@@ -1,7 +1,7 @@
 SRC_DIR=.
 
 all: clean sloc flakes lint csslint jshint xmllint clone
-
+	
 sloc:
 	sloccount --duplicates --wide --details $(SRC_DIR) | fgrep -v .git > sloccount.sc || :
 
@@ -34,3 +34,7 @@ clean:
 	rm -f output.xml
 	rm -f coverage.xml
 	rm -f xunit.xml
+	rm -f csslint-result.xml
+	rm -f jslint-result.xml
+	rm -f xmllint.log
+	rm -f xmllint-errors.log
