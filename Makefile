@@ -1,6 +1,6 @@
 SRC_DIR=.
 
-all: clean sloc flakes lint csslint jshint clone
+all: clean sloc flakes lint csslint jshint xmllint clone
 
 sloc:
 	sloccount --duplicates --wide --details $(SRC_DIR) | fgrep -v .git > sloccount.sc || :
@@ -20,6 +20,9 @@ csslint:
 
 jshint:
 	jshint --verbose --reporter=checkstyle $(SRC_DIR) > jslint-result.xml || :
+
+xmllint:
+	find -L . -regex ".*\.[cz]?xml|zcml" | xargs -r xmllint --noout 2>> xmllint.log >> xmllint-errors.log || :
 
 clone:
 	clonedigger --cpd-output $(SRC_DIR) || :
