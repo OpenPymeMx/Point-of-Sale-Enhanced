@@ -1,6 +1,6 @@
 SRC_DIR=.
 
-all: clean sloc flakes lint clone
+all: clean sloc flakes lint csslint jshint clone
 
 sloc:
 	sloccount --duplicates --wide --details $(SRC_DIR) | fgrep -v .git > sloccount.sc || :
@@ -13,9 +13,13 @@ flakes:
 
 lint:
 	find $(SRC_DIR) -name *.py|egrep -v '^./tests/' | xargs pylint --output-format=parseable --reports=y > pylint.log || :
-	pep8 --ignore=E501 --repeat --show-source . > pep8.log || :
-	jshint --verbose --reporter=checkstyle . > jslint-result.xml || :
-	csslint --format=checkstyle-xml . > csslint-result.xml || :
+	pep8 --ignore=E501 --repeat --show-source $(SRC_DIR) > pep8.log || :
+
+csslint:
+	csslint --format=checkstyle-xml $(SRC_DIR) > csslint-result.xml || :
+
+jshint:
+	jshint --verbose --reporter=checkstyle $(SRC_DIR) > jslint-result.xml || :
 
 clone:
 	clonedigger --cpd-output $(SRC_DIR) || :
