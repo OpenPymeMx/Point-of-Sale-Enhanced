@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<templates id="template" xml:space="preserve">
+
+    <!--
+        The entry point for our custom widget
+        we must override an existing widget
+        
+        t-extend=template 
+            template (String) – name of the template to extend
+            
+        t-jquery=selector
+            selector (String) – a CSS selector into the parent template
+            
+        t-operation=operation
+            operation – one of append, prepend, before, after, inner or replace. 
+     -->
+    <t t-extend="PaypadWidget">
+        <t t-jquery="#paypad" t-operation="replace">
+            <div id="paypad">
+                <div id="placeholder-prodWidget"></div>
+                <div id="placeholder-testWidget"></div>
+            </div>
+        </t>
+    </t>
+    
+    <!-- The template for our custom widget -->
+    <t t-name="testWidget">        
+        <div id="test"></div>       
+    </t>
+    
+</templates>
