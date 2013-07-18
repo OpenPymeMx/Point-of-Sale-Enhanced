@@ -38,3 +38,4 @@ clean:
 	rm -f jslint-result.xml
 	rm -f xmllint.log
 	rm -f xmllint-errors.log
+

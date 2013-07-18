@@ -309,6 +309,23 @@ function openerp_pos_db(instance, module){
             }
             return results;
         },
+        /* returns a list of customers with :
+         * - a name, TIN, email, or phone/mobile containing the query (case insensitive) 
+         */
+        search_customers: function(query){
+            var re = RegExp("([0-9]+):.*?"+query,"gi");
+            var results = [];
+            for(var i = 0; i < this.limit; i++){
+                r = re.exec(this.customer_list_search_strings);
+                if(r){
+                    var id = Number(r[1]);
+                    results.push(this.get_customer_by_id(id));
+                }else{
+                    break;
+                }
+            }
+            return results;
+        },
         add_order: function(order){
             var last_id = this.load('last_order_id',0);
             var orders  = this.load('orders',[]);
