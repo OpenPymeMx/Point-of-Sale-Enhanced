@@ -38,7 +38,7 @@ class pos_order(osv.osv):
         current_lines = []
         new_lines = []
         lines = new_order['lines']         
-        d={''}
+        d={}
         
         for line in order.lines:
             #TODO: Find other way to find bom_id

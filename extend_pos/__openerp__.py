@@ -7,7 +7,7 @@
     'sequence': 7,
     'description': """Simple module that ilustrate the correct way to extend the PoS module""",
     'author': 'Agustín Cruz Lozano (atin81@gmail.com)',
-    'website': 'www.openrestaurant.com.mx',
+    'website': 'www.openpyme.mx',
     'license': 'AGPL-3',
     'depends': ['point_of_sale'],
     'installable': False,
