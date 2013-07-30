@@ -27,7 +27,7 @@ import pdb
 import time
 
 import openerp
-from openerp import tools
+from openerp import netsvc, tools
 from openerp.osv import fields, osv
 from openerp.tools.translate import _
 
@@ -50,7 +50,7 @@ class pos_config(osv.osv):
              required=True, help="An internal identification of the point of sale"),
         'journal_ids' : fields.many2many('account.journal', 'pos_config_journal_rel', 
              'pos_config_id', 'journal_id', 'Available Payment Methods',
-             domain="[('journal_user', '=', True )]",),
+             domain="[('journal_user', '=', True ), ('type', 'in', ['bank', 'cash'])]",),
         'shop_id' : fields.many2one('sale.shop', 'Shop',
              required=True),
         'journal_id' : fields.many2one('account.journal', 'Sale Journal',
@@ -89,7 +89,7 @@ class pos_config(osv.osv):
             'sequence_id' : False,
         }
         d.update(default)
-        return super(pos_order, self).copy(cr, uid, id, d, context=context)
+        return super(pos_config, self).copy(cr, uid, id, d, context=context)
 
 
     def name_get(self, cr, uid, ids, context=None):
@@ -364,7 +364,7 @@ class pos_session(osv.osv):
             ids = [ids]
 
         this_record = self.browse(cr, uid, ids[0], context=context)
-        this_record.signal_workflow('open')
+        this_record._workflow_signal('open')
 
         context.update(active_id=this_record.id)
 
@@ -407,7 +407,10 @@ class pos_session(osv.osv):
                     # The pos manager can close statements with maximums.
                     if not self.pool.get('ir.model.access').check_groups(cr, uid, "point_of_sale.group_pos_manager"):
                         raise osv.except_osv( _('Error!'),
-                            _("Your ending balance is too different from the theorical cash closing (%.2f), the maximum allowed is: %.2f. You can contact your manager to force it.") % (st.difference, st.journal_id.amount_authorized_diff))
+                            _("Your ending balance is too different from the theoretical cash closing (%.2f), the maximum allowed is: %.2f. You can contact your manager to force it.") % (st.difference, st.journal_id.amount_authorized_diff))
+                if (st.journal_id.type not in ['bank', 'cash']):
+                    raise osv.except_osv(_('Error!'), 
+                        _("The type of the journal for your payment method should be bank or cash "))
                 if st.difference and st.journal_id.cash_control == True:
                     if st.difference > 0.0:
                         name= _('Point of Sale Profit')
@@ -428,7 +431,6 @@ class pos_session(osv.osv):
 
                 if st.journal_id.type == 'bank':
                     st.write({'balance_end_real' : st.balance_end})
-
                 getattr(st, 'button_confirm_%s' % st.journal_id.type)(context=context)
         self._confirm_orders(cr, uid, ids, context=context)
         self.write(cr, uid, ids, {'state' : 'closed'}, context=context)
@@ -442,14 +444,14 @@ class pos_session(osv.osv):
         }
 
     def _confirm_orders(self, cr, uid, ids, context=None):
-        account_move_obj = self.pool.get('account.move')
-        pos_order_obj = self.pool.get('pos.order')
+        wf_service = netsvc.LocalService("workflow")
+
         for session in self.browse(cr, uid, ids, context=context):
             order_ids = [order.id for order in session.order_ids if order.state == 'paid']
 
-            move_id = account_move_obj.create(cr, uid, {'ref' : session.name, 'journal_id' : session.config_id.journal_id.id, }, context=context)
+            move_id = self.pool.get('account.move').create(cr, uid, {'ref' : session.name, 'journal_id' : session.config_id.journal_id.id, }, context=context)
 
-            pos_order_obj._create_account_move_line(cr, uid, order_ids, session, move_id, context=context)
+            self.pool.get('pos.order')._create_account_move_line(cr, uid, order_ids, session, move_id, context=context)
 
             for order in session.order_ids:
                 if order.state not in ('paid', 'invoiced'):
@@ -457,7 +459,7 @@ class pos_session(osv.osv):
                         _('Error!'),
                         _("You cannot confirm all orders of this session, because they have not the 'paid' status"))
                 else:
-                    pos_order_obj.signal_done(cr, uid, [order.id])
+                    wf_service.trg_validate(uid, 'pos.order', order.id, 'done', cr)
 
         return True
 
@@ -516,8 +518,9 @@ class pos_order(osv.osv):
                     'payment_name': _('return'),
                     'journal': cash_journal.id,
                 }, context=context)
-            order_ids.append(order_id)          
-            self.signal_paid(cr, uid, order_ids)
+            order_ids.append(order_id)
+            wf_service = netsvc.LocalService("workflow")
+            wf_service.trg_validate(uid, 'pos.order', order_id, 'paid', cr)
         return order_ids
     
     def update_order(self, cr, uid, order, partner_id, context = None):
@@ -606,7 +609,7 @@ class pos_order(osv.osv):
     def unlink(self, cr, uid, ids, context=None):
         for rec in self.browse(cr, uid, ids, context=context):
             if rec.state not in ('draft','cancel'):
-                raise osv.except_osv(_('Unable to Delete !'), _('In order to delete a sale, it must be new or cancelled.'))
+                raise osv.except_osv(_('Unable to Delete!'), _('In order to delete a sale, it must be new or cancelled.'))
         return super(pos_order, self).unlink(cr, uid, ids, context=context)
 
     def onchange_partner_id(self, cr, uid, ids, part=False, context=None):
@@ -775,8 +778,9 @@ class pos_order(osv.osv):
                 }, context=context)
                 if line.qty < 0:
                     location_id, output_id = output_id, location_id
-            
-            picking_obj.signal_button_confirm(cr, uid, [picking_id])
+
+            wf_service = netsvc.LocalService("workflow")
+            wf_service.trg_validate(uid, 'stock.picking', picking_id, 'button_confirm', cr)
             picking_obj.force_assign(cr, uid, [picking_id], context)
         return True
 
@@ -785,8 +789,9 @@ class pos_order(osv.osv):
         @return: True
         """
         stock_picking_obj = self.pool.get('stock.picking')
+        wf_service = netsvc.LocalService("workflow")
         for order in self.browse(cr, uid, ids, context=context):
-            stock_picking_obj.signal_button_cancel(cr, uid, [order.picking_id.id])
+            wf_service.trg_validate(uid, 'stock.picking', order.picking_id.id, 'button_cancel', cr)
             if stock_picking_obj.browse(cr, uid, order.picking_id.id, context=context).state <> 'cancel':
                 raise osv.except_osv(_('Error!'), _('Unable to cancel the picking.'))
         self.write(cr, uid, ids, {'state': 'cancel'}, context=context)
@@ -882,6 +887,7 @@ class pos_order(osv.osv):
         return self.write(cr, uid, ids, {'state':'invoiced'}, context=context)
 
     def action_invoice(self, cr, uid, ids, context=None):
+        wf_service = netsvc.LocalService("workflow")
         inv_ref = self.pool.get('account.invoice')
         inv_line_ref = self.pool.get('account.invoice.line')
         product_obj = self.pool.get('product.product')
@@ -934,7 +940,7 @@ class pos_order(osv.osv):
                 inv_line['invoice_line_tax_id'] = [(6, 0, [x.id for x in line.product_id.taxes_id] )]
                 inv_line_ref.create(cr, uid, inv_line, context=context)
             inv_ref.button_reset_taxes(cr, uid, [inv_id], context=context)
-            self.signal_invoice(cr, uid, [order.id])
+            wf_service.trg_validate(uid, 'pos.order', order.id, 'invoice', cr)
 
         if not inv_ids: return {}
 
@@ -966,8 +972,10 @@ class pos_order(osv.osv):
         account_tax_obj = self.pool.get('account.tax')
         user_proxy = self.pool.get('res.users')
         property_obj = self.pool.get('ir.property')
+        cur_obj = self.pool.get('res.currency')
 
-        period = account_period_obj.find(cr, uid, context=context)[0]
+        ctx = dict(context or {}, account_period_prefer_normal=True)
+        period = account_period_obj.find(cr, uid, context=ctx)[0]
 
         #session_ids = set(order.session_id for order in self.browse(cr, uid, ids, context=context))
 
@@ -1028,11 +1036,11 @@ class pos_order(osv.osv):
                 })
 
                 if data_type == 'product':
-                    key = ('product', values['product_id'],)
+                    key = ('product', values['partner_id'], values['product_id'], values['debit'] > 0)
                 elif data_type == 'tax':
-                    key = ('tax', values['tax_code_id'],)
+                    key = ('tax', values['partner_id'], values['tax_code_id'], values['debit'] > 0)
                 elif data_type == 'counter_part':
-                    key = ('counter_part', values['partner_id'], values['account_id'])
+                    key = ('counter_part', values['partner_id'], values['account_id'], values['debit'] > 0)
                 else:
                     return
 
@@ -1055,19 +1063,25 @@ class pos_order(osv.osv):
                 else:
                     grouped_data[key].append(values)
 
+            #because of the weird way the pos order is written, we need to make sure there is at least one line, 
+            #because just after the 'for' loop there are references to 'line' and 'income_account' variables (that 
+            #are set inside the for loop)
+            #TOFIX: a deep refactoring of this method (and class!) is needed in order to get rid of this stupid hack
+            assert order.lines, _('The POS order must have lines when calling this method')
             # Create an move for each order line
 
+            cur = order.pricelist_id.currency_id
             for line in order.lines:
                 tax_amount = 0
                 taxes = [t for t in line.product_id.taxes_id]
                 computed_taxes = account_tax_obj.compute_all(cr, uid, taxes, line.price_unit * (100.0-line.discount) / 100.0, line.qty)['taxes']
 
                 for tax in computed_taxes:
-                    tax_amount += round(tax['amount'], 2)
+                    tax_amount += cur_obj.round(cr, uid, cur, tax['amount'])
                     group_key = (tax['tax_code_id'], tax['base_code_id'], tax['account_collected_id'], tax['id'])
 
                     group_tax.setdefault(group_key, 0)
-                    group_tax[group_key] += round(tax['amount'], 2)
+                    group_tax[group_key] += cur_obj.round(cr, uid, cur, tax['amount'])
 
                 amount = line.price_subtotal
 
@@ -1102,7 +1116,7 @@ class pos_order(osv.osv):
                     'debit': ((amount<0) and -amount) or 0.0,
                     'tax_code_id': tax_code_id,
                     'tax_amount': tax_amount,
-                    'partner_id': order.partner_id and order.partner_id.id or False
+                    'partner_id': order.partner_id and self.pool.get("res.partner")._find_accounting_partner(order.partner_id).id or False
                 })
 
                 # For each remaining tax with a code, whe create a move line
@@ -1120,6 +1134,7 @@ class pos_order(osv.osv):
                         'debit': 0.0,
                         'tax_code_id': tax_code_id,
                         'tax_amount': tax_amount,
+                        'partner_id': order.partner_id and self.pool.get("res.partner")._find_accounting_partner(order.partner_id).id or False
                     })
 
             # Create a move for each tax group
@@ -1131,11 +1146,12 @@ class pos_order(osv.osv):
                     'name': _('Tax') + ' ' + tax.name,
                     'quantity': line.qty,
                     'product_id': line.product_id.id,
-                    'account_id': key[account_pos],
+                    'account_id': key[account_pos] or income_account,
                     'credit': ((tax_amount>0) and tax_amount) or 0.0,
                     'debit': ((tax_amount<0) and -tax_amount) or 0.0,
                     'tax_code_id': key[tax_code_pos],
                     'tax_amount': tax_amount,
+                    'partner_id': order.partner_id and self.pool.get("res.partner")._find_accounting_partner(order.partner_id).id or False
                 })
 
             # counterpart
@@ -1144,14 +1160,17 @@ class pos_order(osv.osv):
                 'account_id': order_account,
                 'credit': ((order.amount_total < 0) and -order.amount_total) or 0.0,
                 'debit': ((order.amount_total > 0) and order.amount_total) or 0.0,
-                'partner_id': order.partner_id and order.partner_id.id or False
+                'partner_id': order.partner_id and self.pool.get("res.partner")._find_accounting_partner(order.partner_id).id or False
             })
 
             order.write({'state':'done', 'account_move': move_id})
 
+        all_lines = []
         for group_key, group_data in grouped_data.iteritems():
             for value in group_data:
-                account_move_line_obj.create(cr, uid, value, context=context)
+                all_lines.append((0, 0, value),)
+        if move_id: #In case no order was changed
+            self.pool.get("account.move").write(cr, uid, [move_id], {'line_id':all_lines}, context=context)
 
         return True
 
@@ -1199,9 +1218,9 @@ class pos_order_line(osv.osv):
         account_tax_obj = self.pool.get('account.tax')
         cur_obj = self.pool.get('res.currency')
         for line in self.browse(cr, uid, ids, context=context):
-            taxes = line.product_id.taxes_id
+            taxes_ids = [ tax for tax in line.product_id.taxes_id if tax.company_id.id == line.order_id.company_id.id ]
             price = line.price_unit * (1 - (line.discount or 0.0) / 100.0)
-            taxes = account_tax_obj.compute_all(cr, uid, line.product_id.taxes_id, price, line.qty, product=line.product_id, partner=line.order_id.partner_id or False)
+            taxes = account_tax_obj.compute_all(cr, uid, taxes_ids, price, line.qty, product=line.product_id, partner=line.order_id.partner_id or False)
 
             cur = line.order_id.pricelist_id.currency_id
             res[line.id]['price_subtotal'] = cur_obj.round(cr, uid, cur, taxes['total'])
@@ -1213,7 +1232,7 @@ class pos_order_line(osv.osv):
        if not product_id:
             return {}
        if not pricelist:
-           raise osv.except_osv(_('No Pricelist !'),
+           raise osv.except_osv(_('No Pricelist!'),
                _('You have to select a pricelist in the sale form !\n' \
                'Please set one before choosing a product.'))
 

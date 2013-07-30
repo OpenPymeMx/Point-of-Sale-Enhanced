@@ -23,8 +23,8 @@
                 <div id="leftpane">
                     <div id="placeholder-OrderWidget"></div>
                     <footer>
-                        <div id="placeholder-PaypadWidget"></div>                        
-                        <div id="placeholder-NumpadWidget"></div>                        
+                        <div id="placeholder-PaypadWidget"></div>
+                        <div id="placeholder-NumpadWidget"></div>
                     </footer>
                 </div>
                 <div id="rightpane">
