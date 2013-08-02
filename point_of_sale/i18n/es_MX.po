@@ -16,11 +16,6 @@ msgstr ""
 "X-Launchpad-Export-Date: 2011-09-05 05:05+0000\n"
 "X-Generator: Launchpad (build 13830)\n"
 
-#: prueba
-msgid "Select Customer"
-msgstr "Selecciona Cliente"
-
-
 #. module: point_of_sale
 #: field:pos.discount,discount_notes:0
 msgid "Discount Notes"
