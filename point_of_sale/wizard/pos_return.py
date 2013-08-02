@@ -19,6 +19,7 @@
 #
 ##############################################################################
 
+from openerp import netsvc
 from openerp.osv import osv,fields
 from openerp.tools.translate import _
 import time
@@ -103,6 +104,7 @@ class pos_return(osv.osv_memory):
         property_obj= self.pool.get("ir.property")
         uom_obj =self. pool.get('product.uom')
         statementl_obj = self.pool.get('account.bank.statement.line')
+        wf_service = netsvc.LocalService("workflow")
         #Todo :Need to clean the code
         if active_id:
             data = self.browse(cr, uid, ids, context=context)[0]
@@ -155,7 +157,7 @@ class pos_return(osv.osv_memory):
                                                 'amount': -amount,
                                                 })
                 order_obj.write(cr,uid, [active_id,new_order], {'state': 'done'})
-                picking_obj.signal_button_confirm(cr, uid, [new_picking])
+                wf_service.trg_validate(uid, 'stock.picking', new_picking, 'button_confirm', cr)
                 picking_obj.force_assign(cr, uid, [new_picking], context)
             act = {
                 'domain': "[('id', 'in', ["+str(new_order)+"])]",
@@ -198,6 +200,7 @@ class add_product(osv.osv_memory):
             date_cur=time.strftime('%Y-%m-%d')
             uom_obj = self.pool.get('product.uom')
             prod_obj=self.pool.get('product.product')
+            wf_service = netsvc.LocalService("workflow")
             order_obj.add_product(cr, uid, active_id, data['product_id'], data['quantity'], context=context)
 
             for order_id in order_obj.browse(cr, uid, [active_id], context=context):
@@ -229,7 +232,7 @@ class add_product(osv.osv_memory):
                                 'date':date_cur
                             })
 
-                picking_obj.signal_button_confirm(cr, uid, [new_picking])
+                wf_service.trg_validate(uid, 'stock.picking', new_picking, 'button_confirm', cr)
                 picking_obj.force_assign(cr, uid, [new_picking], context)
                 order_obj.write(cr,uid,active_id,{'picking_id':new_picking})
 
@@ -262,6 +265,7 @@ class add_product(osv.osv_memory):
         if return_id:
             data = return_boj.read(cr,uid,return_id,[])[0]
 
+        wf_service = netsvc.LocalService("workflow")
         self_data = self.browse(cr, uid, ids, context=context)[0]
         order_obj.add_product(cr, uid, active_ids[0], self_data.product_id.id, self_data.quantity, context=context)
 
@@ -302,7 +306,7 @@ class add_product(osv.osv_memory):
                         'name':'%s (return)' % order_id.name,
                         'date':date_cur,
                     })
-            picking_obj.signal_button_confirm(cr, uid, [new_picking])
+            wf_service.trg_validate(uid, 'stock.picking',new_picking,'button_confirm', cr)
             picking_obj.force_assign(cr, uid, [new_picking], context)
         obj=order_obj.browse(cr,uid, active_ids[0])
         context.update({'return':'return'})

@@ -1,24 +1,8 @@
 function openerp_pos_models(instance, module){ //module is instance.point_of_sale
     var QWeb = instance.web.qweb;
 
-    // rounds a value with a fixed number of decimals.
-    // round(3.141492,2) -> 3.14
-    function round(value,decimals){
-        var mult = Math.pow(10,decimals || 0);
-        return Math.round(value*mult)/mult;
-    }
-    window.round = round;
-
-    // rounds a value with decimal form precision
-    // round(3.141592,0.025) ->3.125
-    function round_pr(value,precision){
-        if(!precision || precision < 0){
-            throw new Error('round_pr(): needs a precision greater than zero, got '+precision+' instead');
-        }
-        return Math.round(value / precision) * precision;
-    }
-    window.round_pr = round_pr;
-
+    var round_di = instance.web.round_decimals;
+    var round_pr = instance.web.round_precision
     
     // The PosModel contains the Point Of Sale's representation of the backend.
     // Since the PoS must work in standalone ( Without connection to the server ) 
@@ -123,7 +107,6 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
 
                     return self.fetch('res.currency',['symbol','position','rounding','accuracy'],[['id','=',self.get('company').currency_id[0]]]);
                 }).then(function(currencies){
-                    console.log('Currency:',currencies[0]);
                     self.set('currency',currencies[0]);
 
                     return self.fetch('product.uom', null, null);
@@ -217,7 +200,6 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                         journals.push(statement.journal_id[0])
                     });
                     self.set('bank_statements', bank_statements);
-                    
                     return self.fetch('account.journal', undefined, [['id','in', journals]]);
                 }).then(function(journals){
                     self.set('journals',journals);
@@ -241,7 +223,6 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
         // logs the usefull posmodel data to the console for debug purposes
         log_loaded_data: function(){
             console.log('PosModel data has been loaded:');
-            console.log('PosModel: categories:',this.get('categories'));
             console.log('PosModel: units:',this.get('units'));
             console.log('PosModel: bank_statements:',this.get('bank_statements'));
             console.log('PosModel: journals:',this.get('journals'));
@@ -263,8 +244,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
         on_removed_order: function(removed_order){
             if( this.get('orders').isEmpty()){
                 this.add_new_order();
-            }
-            if( this.get('selectedOrder') === removed_order){
+            }else{
                 this.set({ selectedOrder: this.get('orders').last() });
             }
         },
@@ -308,7 +288,8 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                 return;
             }
             //try to push an order to the server
-            (new instance.web.Model('pos.order')).get_func('create_from_ui')([order])
+            // shadow : true is to prevent a spinner to appear in case of timeout
+            (new instance.web.Model('pos.order')).call('create_from_ui',[[order]],undefined,{ shadow:true })
                 .fail(function(unused, event){
                     //don't show error popup if it fails 
                     event.preventDefault();
@@ -487,7 +468,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                 var quant = Math.max(parseFloat(quantity) || 0, 0);
                 var unit = this.get_unit();
                 if(unit){
-                    this.quantity    = Math.max(unit.rounding, Math.round(quant / unit.rounding) * unit.rounding);
+                    this.quantity    = Math.max(unit.rounding, round_pr(quant, unit.rounding));
                     this.quantityStr = this.quantity.toFixed(Math.max(0,Math.ceil(Math.log(1.0 / unit.rounding) / Math.log(10))));
                 }else{
                     this.quantity    = quant;
@@ -526,15 +507,6 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
         // return the product of this orderline
         get_product: function(){
             return this.product;
-        },
-        // return the base price of this product (for this orderline)
-        get_price: function(){
-            return this.price;
-        },
-        // changes the base price of the product for this orderline
-        set_price: function(price){
-            this.price = price;
-            this.trigger('change');
         },
         // selects or deselects this orderline
         set_selected: function(selected){
@@ -589,7 +561,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
         },
         // changes the base price of the product for this orderline
         set_unit_price: function(price){
-            this.price = round(parseFloat(price) || 0, 2);
+            this.price = round_di(parseFloat(price) || 0, 2);
             this.trigger('change');
         },
         get_unit_price: function(){
@@ -710,7 +682,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
     // automaticaly once an order is completed and sent to the server.
     module.Order = Backbone.Model.extend({
         initialize: function(attributes){
-            Backbone.Model.prototype.initialize.apply(this, arguments);            
+            Backbone.Model.prototype.initialize.apply(this, arguments);
             this.set({
                 creationDate:   attributes.creationDate != null ? instance.web.str_to_datetime(attributes.creationDate) : new Date(),
                 orderLines:     new module.OrderlineCollection(),
@@ -858,7 +830,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
             this.get('paymentLines').each(function(paymentline){
                 paymentlines.push(paymentline.export_for_printing());
             });
-            var client  = this.pos.get('selectedOrder').get('client');
+            var client  = this.get('client');
             var cashier = this.pos.get('cashier') || this.pos.get('user');
             var company = this.pos.get('company');
             var shop    = this.pos.get('shop');
@@ -1009,24 +981,14 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                 mode: "quantity"
             });
         },
-        updateTarget: function() {
-            var bufferContent, params;
-            bufferContent = this.get('buffer');
-            if (bufferContent && !isNaN(bufferContent)) {
-            	this.trigger('set_value', parseFloat(bufferContent));
-            }
-        },
-        killTarget: function(){
-            this.trigger('set_value',Number.NaN);
-        },
         resetValue: function(){
             this.set({buffer:'0'});
         },
     });
-
+    
     module.Customer = Backbone.Model.extend({
     });
-
+  
     module.CustomerCollection = Backbone.Collection.extend({
         model: module.Customer,
     });

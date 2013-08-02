@@ -32,9 +32,8 @@ this module is beta vercion.
 
 
     """,
-    'author': 'Fedrogesa',
-    'depends': ['mrp','point_of_sale'],
-    'data': ['mrp_pos_produce.xml'],
+    'author': 'Fedrojesa',
+    'depends': ['mrp', 'point_of_sale'],
     'demo': [],
     'test': [],
     'installable': True,
