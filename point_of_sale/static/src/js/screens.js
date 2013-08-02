@@ -222,6 +222,20 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
                 last_orderline.set_discount(ean.value)
             }
         },
+        
+        // what happens when a product is entered by keypad emulator : 
+        // it will add the product to the order.
+        keypad_product_action: function(data){
+            var self = this;
+            if(self.pos.keypad_enter_product(data)){
+                self.pos.proxy.keypad_item_success(data);
+            }else{
+                self.pos.proxy.keypad_item_error_unrecognized(data);
+                if(self.product_error_popup && self.pos_widget.screen_selector.get_user_mode() === 'cashier'){
+                    self.pos_widget.screen_selector.show_popup(self.product_error_popup);
+                }
+            }
+        },
 
         // shows an action bar on the screen. The actionbar is automatically shown when you add a button
         // with add_action_button()
@@ -284,8 +298,10 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
                 this.pos_widget.client_button.hide();
             }
             if(cashier_mode){
+            	this.pos_widget.select_customer_button.show();
                 this.pos_widget.close_button.show();
             }else{
+            	this.pos_widget.select_customer_button.hide();
                 this.pos_widget.close_button.hide();
             }
             
@@ -297,11 +313,16 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
                 'client' : self.barcode_client_action ?  function(ean){ self.barcode_client_action(ean);  } : undefined ,
                 'discount': self.barcode_discount_action ? function(ean){ self.barcode_discount_action(ean); } : undefined,
             });
+            
+            this.pos.keypad.set_action_callback(function(data){ self.keypad_product_action(data); });
         },
 
         // this method is called when the screen is closed to make place for a new screen. this is a good place
         // to put your cleanup stuff as it is guaranteed that for each show() there is one and only one close()
         close: function(){
+            if(this.pos.keypad){
+                this.pos.keypad.reset_action_callback();
+            }
             if(this.pos.barcode_reader){
                 this.pos.barcode_reader.reset_action_callbacks();
             }
@@ -401,6 +422,7 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
             this._super();
             this.pos.proxy.help_needed();
             this.pos.proxy.scan_item_error_unrecognized();
+            this.pos.proxy.keypad_item_error_unrecognized();
 
             this.pos.barcode_reader.save_callbacks();
             this.pos.barcode_reader.reset_action_callbacks();
@@ -411,6 +433,8 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
                     self.pos_widget.screen_selector.set_user_mode('cashier');
                 },
             });
+			this.pos.keypad.save_callback();
+            this.pos.keypad.reset_action_callback();
             this.$('.footer .button').off('click').click(function(){
                 self.pos_widget.screen_selector.close_popup();
             });
@@ -418,6 +442,7 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
         close:function(){
             this._super();
             this.pos.proxy.help_canceled();
+            this.pos.keypad.restore_callback();
             this.pos.barcode_reader.restore_callbacks();
         },
     });
@@ -797,10 +822,12 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
             this.user = this.pos.get('user');
             this.company = this.pos.get('company');
             this.shop_obj = this.pos.get('shop');
+            this.client = null;
         },
         renderElement: function() {
             this._super();
             this.pos.bind('change:selectedOrder', this.change_selected_order, this);
+            this.pos.get('selectedOrder').bind('change:client', this.change_client, this);
             this.change_selected_order();
         },
         show: function(){
@@ -838,6 +865,10 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
                 this.currentPaymentLines.unbind();
             this.currentPaymentLines = (this.pos.get('selectedOrder')).get('paymentLines');
             this.currentPaymentLines.bind('all', this.refresh, this);
+            this.refresh();
+        },
+        change_client: function() {
+            this.client = this.pos.get('selectedOrder').get('client');
             this.refresh();
         },
         refresh: function() {
@@ -1006,4 +1037,79 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
         	this.currentPaymentLines.last().set_amount(val);
         },
     });
+    
+    module.SelectCustomerPopupWidget = module.PopUpWidget.extend({
+        template:'SelectCustomerPopupWidget',
+        
+        start: function(){
+            this._super();
+            var self = this;
+            this.customer_list_widget = new module.CustomerListWidget(this,{
+                click_customer_action: function(customer){
+                    this.pos.get('selectedOrder').set_client(customer);
+                    this.pos_widget.customername.refresh();
+                    this.pos_widget.screen_selector.set_current_screen('products');
+                },
+            });
+        },
+        
+        show: function(){
+            this._super();
+            var self = this;
+            this.renderElement();
+            
+            this.customer_list_widget.replace($('.placeholder-CustomerListWidget'));
+
+            this.$('.button.cancel').off('click').click(function(){
+                self.pos_widget.screen_selector.set_current_screen('products');
+            });
+            
+            this.customer_search();
+        },
+
+        // Customer search filter
+        customer_search: function(){
+            var self = this;
+
+            // find all products belonging to the current category
+            var customers = this.pos.db.get_all_customers();
+            self.pos.get('customers').reset(customers);
+
+            // filter customers according to the search string
+            this.$('.customer-searchbox input').keyup(function(event){
+                query = $(this).val().toLowerCase();
+                if(query){
+                    var customers = self.pos.db.search_customers(query);
+                    self.pos.get('customers').reset(customers);
+                    self.$('.customer-search-clear').fadeIn();
+                    if(event.keyCode == 13){
+                        var c = null;
+                        if(customers.length == 1){
+                            c = self.pos.get('customers').get(customers[0]);
+                        }
+                        if(c !== null){
+                            self.pos_widget.select_customer_popup.customer_list_widget.click_customer_action(c);
+                            self.$('.customer-search-clear').trigger('click');
+                        }
+                    }
+                }else{
+                    var customers = self.pos.db.get_all_customers();
+                    self.pos.get('customers').reset(customers);
+                    self.$('.customer-search-clear').fadeOut();
+                }
+            });
+
+            this.$('.customer-searchbox input').click(function(){}); //Why ???
+
+            //reset the search when clicking on reset
+            this.$('.customer-search-clear').click(function(){
+                var customers = self.pos.db.get_all_customers();
+                self.pos.get('customers').reset(customers);
+                self.$('.customer-searchbox input').val('').focus();
+                self.$('.customer-search-clear').fadeOut();
+            });
+        },
+
+    });
+
 }
