@@ -223,8 +223,8 @@ function openerp_pos_db(instance, module){
             if(customer.phone){
                 str += '|' + customer.phone;
             }
-            if(customer.mobile){
-                str += '|' + customer.mobile;
+            if(customer.contact_address){
+                str += '|' + customer.contact_address;
             }
             return str + '\n';
         },
