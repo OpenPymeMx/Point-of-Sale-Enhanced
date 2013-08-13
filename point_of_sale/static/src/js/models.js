@@ -130,7 +130,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                 }).then(function(partners){
                     self.set('partner_list',partners);
 
-                    return self.fetch('res.partner', ['name','vat','email','phone','mobile'], [['customer', '=', true]]);
+                    return self.fetch('res.partner', ['name','vat','email','phone','contact_address'], [['customer', '=', true]]);
                 }).then(function(customers){
                     self.db.add_customers(customers);
                     
@@ -847,7 +847,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                 total_discount: this.getDiscountTotal(),
                 change: this.getChange(),
                 name : this.getName(),
-                client: client ? client.name : null ,
+                client: client ? client : null ,
                 invoice_id: null,   //TODO
                 cashier: cashier ? cashier.name : null,
                 date: { 
