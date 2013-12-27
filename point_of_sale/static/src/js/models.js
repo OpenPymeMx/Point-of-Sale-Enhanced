@@ -2,7 +2,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
     var QWeb = instance.web.qweb;
 
     var round_di = instance.web.round_decimals;
-    var round_pr = instance.web.round_precision
+    var round_pr = instance.web.round_precision;
     
     // The PosModel contains the Point Of Sale's representation of the backend.
     // Since the PoS must work in standalone ( Without connection to the server ) 
@@ -76,7 +76,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
 
         // helper function to load data from the server
         fetch: function(model, fields, domain, ctx){
-            return new instance.web.Model(model).query(fields).filter(domain).context(ctx).all()
+            return new instance.web.Model(model).query(fields).filter(domain).context(ctx).all();
         },
         // loads all the needed data on the sever. returns a deferred indicating when all the data has loaded. 
         load_server_data: function(){
@@ -171,7 +171,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                 }).then(function(packagings){
                     self.db.add_packagings(packagings);
 
-                    return self.fetch('pos.category', ['id','name','parent_id','child_id','image'])
+                    return self.fetch('pos.category', ['id','name','parent_id','child_id','image']);
                 }).then(function(categories){
                     self.db.add_categories(categories);
 
@@ -197,7 +197,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                 }).then(function(bank_statements){
                     var journals = new Array();
                     _.each(bank_statements,function(statement) {
-                        journals.push(statement.journal_id[0])
+                        journals.push(statement.journal_id[0]);
                     });
                     self.set('bank_statements', bank_statements);
                     return self.fetch('account.journal', undefined, [['id','in', journals]]);
@@ -398,7 +398,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                                 line = lines[j];
                                 product = self.db.get_product_by_id(line.product_id[0]);                       
                                 new_order.addProduct(new module.Product(product), {quantity:line.qty});
-                                if (line.discount > 0) {new_order.getSelectedLine().set_discount(line.discount)}
+                                if (line.discount > 0) {new_order.getSelectedLine().set_discount(line.discount);}
                             }
                         });
                     self.get('orders').add(new_order);

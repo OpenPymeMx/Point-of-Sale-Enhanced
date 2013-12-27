@@ -1200,7 +1200,7 @@ function openerp_pos_widgets(instance, module){ //module is instance.point_of_sa
         try_close: function() {
             var self = this;
             //TODO : do the close after the flush...
-            self.pos.flush()
+            self.pos.flush();
             self.close();
         },
         close: function() {
@@ -1270,7 +1270,7 @@ function openerp_pos_widgets(instance, module){ //module is instance.point_of_sa
                             model: customer,
                             next_screen: 'products',
                             click_customer_action: self.click_customer_action,
-                    })
+                    });
                     self.customer_list.push(customer);
                     return customer;
                 })
