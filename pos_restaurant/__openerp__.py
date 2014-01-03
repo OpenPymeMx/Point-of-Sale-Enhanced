@@ -60,6 +60,7 @@ Main Features
     'data': [
         'security/ir.model.access.csv',
         'data/point_of_sale_view.xml',
+        'data/point_of_sale_data.xml',
     ],
     'demo': [
         'point_of_sale_demo.xml',
@@ -67,16 +68,17 @@ Main Features
     'test': [
     ],
     'js': [
-        'static/src/js/widgets.js',
-        'static/src/js/screens.js',
         'static/src/js/db.js',
         'static/src/js/models.js',
+        'static/src/js/widgets.js',
+        'static/src/js/screens.js',
+        'static/src/js/main.js',
     ],
     'css': [
         'static/src/css/pos.css',
     ],
     'qweb': [
-        'static/src/xml/pos.xml'
+        'static/src/xml/pos_restaurant.xml'
     ],
     'auto_install': False,
     'installable': True,
