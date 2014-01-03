@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<templates id="template" xml:space="preserve">
+
+    <t t-name="TableListWidget">
+        <div class='table-list-container'>
+            <div class="table-list-scroller">
+                <div class="table-list">
+                </div>
+            </div>
+            <span class="placeholder-ScrollbarWidget" />
+        </div>
+    </t>
+
+    <t t-name="TableScreenWidget">
+        <div class="table-screen screen">
+            <table class="layout-table">
+
+                <tr class="content-row">
+                    <td class="content-cell">
+                        <div class="content-container">
+                            <span class="placeholder-TableListWidget" />
+                        </div>
+                    </td>
+                </tr>
+
+            </table>
+        </div>
+    </t>
+    
+    <t t-name="Table">
+        <span class='product' t-att-data-product-id="table.id">
+            <div class="product-name">
+                <t t-esc="table.name"/>
+            </div>
+        </span>
+    </t>
+    
+</templates>
