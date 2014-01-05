@@ -19,6 +19,7 @@ function pos_restaurant_screens (instance, module){
             this.table_list_widget = new module.TableListWidget(this,{
                 click_table_action: function(table){
                     self.pos.get('selectedOrder').setTable(table);
+                    self.pos_widget.screen_selector.set_current_screen(self.next_screen);
                 },
                 table_list: this.pos.db.get_table_list()
             });

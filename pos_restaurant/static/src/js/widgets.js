@@ -24,10 +24,7 @@ function pos_restaurant_widgets (instance, module) {
             this.table_list = options.table_list || [];
             this.table_cache = {};
         },
-        set_table_list: function(table_list){
-            this.table_list = table_list;
-            this.renderElement();
-        },
+
         replace: function($target){
             this.renderElement();
             var target = $target[0];

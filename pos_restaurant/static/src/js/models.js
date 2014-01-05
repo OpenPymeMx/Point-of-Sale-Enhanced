@@ -7,8 +7,72 @@
 function pos_restaurant_models (instance, module){
     // Setting Use strict
     "use strict";
-  
+    
+    /*
+     * Store a version of PosModel.initialize to call from the
+     * modified version we create
+     */
     module.PosModel = module.PosModel.extend({
+        initialize: function(session, attributes) {
+            Backbone.Model.prototype.initialize.call(this, attributes);
+            var  self = this;
+            this.session = session;                 
+            this.ready = $.Deferred();                          // used to notify the GUI that the PosModel has loaded all resources
+            this.flush_mutex = new $.Mutex();                   // used to make sure the orders are sent to the server once at time
+
+            this.barcode_reader = new module.BarcodeReader({'pos': this});  // used to read barcodes
+            this.keypad = new module.Keypad({'pos': this});     // used to simulate a cash register keypad
+            this.proxy = new module.ProxyDevice();              // used to communicate to the hardware devices via a local proxy
+            this.db = new module.PosLS();                       // a database used to store the products and categories
+            this.db.clear('products','categories','customers','tables');
+            this.debug = jQuery.deparam(jQuery.param.querystring()).debug !== undefined;    //debug mode
+
+
+            // default attributes values. If null, it will be loaded below.
+            this.set({
+                'nbr_pending_operations': 0,    
+
+                'currency':         {symbol: '$', position: 'after'},
+                'shop':             null, 
+                'company':          null,
+                'user':             null,   // the user that loaded the pos
+                'user_list':        null,   // list of all users
+                'partner_list':     null,   // list of all partners with an ean
+                'cashier':          null,   // the logged cashier, if different from user
+
+                'orders':           new module.OrderCollection(),
+                //this is the product list as seen by the product list widgets, it will change based on the category filters
+                'products':         new module.ProductCollection(), 
+                'customers':        new module.CustomerCollection(),
+                'tables':           new module.TableCollection(),
+                'cashRegisters':    null, 
+
+                'bank_statements':  null,
+                'taxes':            null,
+                'pos_session':      null,
+                'pos_config':       null,
+                'units':            null,
+                'units_by_id':      null,
+
+                'selectedOrder':    null,
+            });
+
+            this.get('orders').bind('remove', function(){ self.on_removed_order(); });
+            
+            // We fetch the backend data on the server asynchronously. this is done only when the pos user interface is launched,
+            // Any change on this data made on the server is thus not reflected on the point of sale until it is relaunched. 
+            // when all the data has loaded, we compute some stuff, and declare the Pos ready to be used. 
+            $.when(this.load_server_data())
+                .done(function(){
+                    self.log_loaded_data(); //Uncomment if you want to log the data to the console for easier debugging
+                    self.ready.resolve();
+                }).fail(function(){
+                    //we failed to load some backend data, or the backend was badly configured.
+                    //the error messages will be displayed in PosWidget
+                    self.ready.reject();
+                });
+        },
+        
         // TODO: Find a way to extend this function properly 
         load_server_data: function(){
             var self = this,
@@ -152,5 +216,28 @@ function pos_restaurant_models (instance, module){
                 });
             return loaded;
         }
+
+    });
+
+    // Extends module.Order to include tables related functions
+    module.Order = module.Order.extend({
+        setTable: function(table){
+            this.set({'table': table});
+        },
+        
+        get_table: function(){
+            return this.get('table');
+        },
+        get_table_name: function(){
+            var table = this.get('table');
+            return table ? table.name : "";
+        },
+    });
+    
+    module.Table = Backbone.Model.extend({
+    });
+  
+    module.TableCollection = Backbone.Collection.extend({
+        model: module.Table,
     });
 };
