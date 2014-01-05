@@ -603,10 +603,10 @@ function openerp_pos_widgets(instance, module){ //module is instance.point_of_sa
 
         // filters the products, and sets up the search callbacks
         search_and_categories: function(category){
-            var self = this;
+            var self = this,
 
             // find all products belonging to the current category
-            var products = this.pos.db.get_product_by_category(this.category.id);
+            products = this.pos.db.get_product_by_category(this.category.id);
             self.pos.get('products').reset(products);
 
             // filter the products according to the search string

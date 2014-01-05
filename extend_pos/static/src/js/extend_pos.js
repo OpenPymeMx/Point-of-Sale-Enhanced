@@ -31,5 +31,5 @@ openerp.extend_pos = function(instance){
 	        this.test = new module.testWidget(this);
 	        this.test.replace($('#placeholder-testWidget'));			
 		}
-	})
-}
+	});
+};
