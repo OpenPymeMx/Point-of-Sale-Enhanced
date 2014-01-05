@@ -75,7 +75,7 @@ Main Features
         'static/src/js/main.js',
     ],
     'css': [
-        'static/src/css/pos.css',
+        'static/src/css/pos_tables.css',
     ],
     'qweb': [
         'static/src/xml/pos_restaurant.xml'

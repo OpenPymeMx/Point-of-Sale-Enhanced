@@ -29,11 +29,21 @@
     </t>
     
     <t t-name="Table">
-        <span class='product' t-att-data-product-id="table.id">
-            <div class="product-name">
+        <span class='table' t-att-data-table-id="table.id">
+            <div class="table-name">
                 <t t-esc="table.name"/>
             </div>
         </span>
+    </t>
+    
+    <!-- Extend OrderButtonWidget to display table name  
+        -->
+    <t t-extend="OrderButtonWidget">
+        <t t-jquery=".select-order" t-operation="replace">
+            <button class="select-order">
+                <t t-esc="(widget.order.get_table() ? widget.order.get_table_name()+' : ':'') + (widget.order.get_client() ? widget.order.get_client_name() : widget.order.get('creationDate').toString('t'))"/>
+            </button>
+        </t>
     </t>
     
 </templates>
