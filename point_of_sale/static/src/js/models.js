@@ -389,8 +389,8 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
             
             for(i = 0, len = orders.length; i < len; i++){
                 (function(){
-                    var order = orders[i];                                    
-                    var new_order = new module.Order({creationDate:order.date_order, name:order.pos_reference, partner_id:order.partner_id, order_id:order.id, pos:self});
+                    var order = orders[i],                                    
+                    new_order = new module.Order({creationDate:order.date_order, name:order.pos_reference, partner_id:order.partner_id, order_id:order.id, pos:self});
                     //Get current lines from remote database                         
                     self.fetch('pos.order.line', ['product_id', 'qty', 'discount'], [['order_id', '=', order.id]])
                         .then(function(lines) {
@@ -702,10 +702,13 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
         },
         addProduct: function(product, options){
             options = options || {};
-            var attr = product.toJSON();
+            var attr = product.toJSON(),
+            // Helper variable to prevent product added twice
+            added = false,
+            line = new module.Orderline({}, {pos: this.pos, order: this, product: product}),
+            self = this;
             attr.pos = this.pos;
             attr.order = this;
-            var line = new module.Orderline({}, {pos: this.pos, order: this, product: product});
 
             if(options.quantity !== undefined){
                 line.set_quantity(options.quantity);
@@ -714,10 +717,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                 line.set_unit_price(options.price);
             }
             
-            // Helper variable to prevent product added twice
-            var added = false;
             if(this.get('orderLines').at(this.get('orderLines').length -1)){
-            	self = this; 
             	this.get('orderLines').each(function(last_orderline){
                     if(last_orderline && last_orderline.can_be_merged_with(line) && options.merge !== false){
                         last_orderline.merge(line);
