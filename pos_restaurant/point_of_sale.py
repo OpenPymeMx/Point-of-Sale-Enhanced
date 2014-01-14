@@ -53,10 +53,22 @@ class pos_order(osv.osv):
                                                        uid,
                                                        order,
                                                        partner_id,
-                                                       context
-                                                       )
+                                                       context)
 
         self.write(cr, uid, {
                     'table_id': order['table_id'],
                 }, context)
         return order_id
+
+    def update_order(self, cr, uid, order, partner_id, context=None):
+        super(pos_order, self).update_order(cr,
+                                            uid,
+                                            order,
+                                            partner_id,
+                                            context)
+
+        if 'order_id' in order:
+            self.write(cr, uid, order['order_id'], {
+                           'table_id': order['table_id'] or False,
+                           }, context)
+        return order['order_id']
