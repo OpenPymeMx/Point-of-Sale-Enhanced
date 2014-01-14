@@ -47,3 +47,16 @@ class pos_order(osv.osv):
     _columns = {
         'table_id': fields.many2one('pos.tables', _('Table'), required=False)
     }
+
+    def create_order(self, cr, uid, order, partner_id, context=None):
+        order_id = super(pos_order, self).create_order(cr,
+                                                       uid,
+                                                       order,
+                                                       partner_id,
+                                                       context
+                                                       )
+
+        self.write(cr, uid, {
+                    'table_id': order['table_id'],
+                }, context)
+        return order_id

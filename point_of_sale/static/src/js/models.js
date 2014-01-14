@@ -1,8 +1,8 @@
 function openerp_pos_models(instance, module){ //module is instance.point_of_sale
-    var QWeb = instance.web.qweb;
+    var QWeb = instance.web.qweb,
 
-    var round_di = instance.web.round_decimals;
-    var round_pr = instance.web.round_precision;
+        round_di = instance.web.round_decimals,
+        round_pr = instance.web.round_precision;
     
     // The PosModel contains the Point Of Sale's representation of the backend.
     // Since the PoS must work in standalone ( Without connection to the server ) 
@@ -279,8 +279,8 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
         // is used to skip orders that failed. do not call this method outside the mutex provided
         // by flush() 
         _flush: function(index){
-            var self = this;
-            var orders = this.db.get_orders();
+            var self = this,
+                orders = this.db.get_orders();
             self.set('nbr_pending_operations',orders.length);
 
             var order  = orders[index];
@@ -389,7 +389,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
             
             for(i = 0, len = orders.length; i < len; i++){
                 (function(){
-                    var order = orders[i],                                    
+                    var order = orders[i],               
                     new_order = new module.Order({creationDate:order.date_order, name:order.pos_reference, partner_id:order.partner_id, order_id:order.id, pos:self});
                     //Get current lines from remote database                         
                     self.fetch('pos.order.line', ['product_id', 'qty', 'discount'], [['order_id', '=', order.id]])

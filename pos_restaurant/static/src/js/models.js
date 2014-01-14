@@ -12,7 +12,26 @@ function pos_restaurant_models (instance, module){
      * Store a version of PosModel.initialize to call from the
      * modified version we create
      */
-    module.PosModel = module.PosModel.extend({
+    module.PosRestaurantModel = module.PosModel;
+    module.PosModel = module.PosRestaurantModel.extend({
+        // Load table information for orders
+        load_orders: function(orders){
+            var self = this,
+                i, len, orderscollection;
+            this._super(orders);
+            // Get orderscollection from backbone model and
+            // iterate to get the sync_key for each one
+            orderscollection = self.get('orders');
+            orderscollection.each(function(order) {
+                self.fetch('pos.order', ['table_id'], [['id', '=', order.get('order_id')]])
+                    .then(function(table_data) {
+                        var table = self.db.get_table_by_id(table_data[0].table_id[0]);
+                        order.setTable(table);
+                        //Set current order screen to products
+                        order.set_screen_data('cashier_screen','products');
+                    });
+            });
+        },
         
         // TODO: Find a way to extend this function properly 
         load_server_data: function(){
@@ -121,6 +140,10 @@ function pos_restaurant_models (instance, module){
                 }).then(function(products){
                     self.db.add_products(products);
                     
+                    return self.fetch('pos.tables', ['name', 'capacity'], [['company_id','=',self.get('company').id]]);
+                }).then(function(tables){
+                    self.db.add_tables(tables);
+                    
                     return self.fetch('pos.order', ['name','session_id', 'id', 'lines','date_order', 'pos_reference', 'partner_id', 'creationDate'], [['state', '=', 'draft']]);
                 }).then(function(orders){
                     self.load_orders(orders);
@@ -151,9 +174,6 @@ function pos_restaurant_models (instance, module){
                         }
                     }
                     self.set({'cashRegisters' : new module.CashRegisterCollection(self.get('bank_statements'))});
-                    return self.fetch('pos.tables', ['name', 'capacity'], [['company_id','=',self.get('company').id]]);
-                }).then(function(tables){
-                    self.db.add_tables(tables);
                 });
             return loaded;
         }
@@ -161,7 +181,15 @@ function pos_restaurant_models (instance, module){
     });
 
     // Extends module.Order to include tables related functions
-    module.Order = module.Order.extend({
+    module.PosRestaurantOrder = module.Order;
+    module.Order = module.PosRestaurantOrder.extend({
+        exportAsJSON: function() {
+            var dict = this._super(),
+                table = this.get('table');
+            if (typeof table !== 'undefined') {dict.table_id = table.id;}
+            return dict;
+        },
+        
         setTable: function(table){
             this.set({'table': table});
         },
@@ -169,10 +197,11 @@ function pos_restaurant_models (instance, module){
         get_table: function(){
             return this.get('table');
         },
+        
         get_table_name: function(){
             var table = this.get('table');
             return table ? table.name : "";
-        },
+        }
     });
     
 };
