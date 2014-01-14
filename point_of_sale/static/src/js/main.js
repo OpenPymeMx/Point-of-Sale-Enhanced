@@ -22,6 +22,7 @@
                     funcs[index](instance, module); 
                 } 
                 catch (e) { 
+                    console.log('Error procesing function: '+funcs[index]);
                     console.log(e);
                 }
             }
