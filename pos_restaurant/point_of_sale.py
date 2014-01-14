@@ -67,7 +67,7 @@ class pos_order(osv.osv):
                                             partner_id,
                                             context)
 
-        if 'order_id' in order:
+        if ('order_id' in order and 'table_id' in order):
             self.write(cr, uid, order['order_id'], {
                            'table_id': order['table_id'] or False,
                            }, context)
