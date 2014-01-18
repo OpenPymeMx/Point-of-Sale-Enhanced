@@ -381,30 +381,35 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
         },
         
         load_orders: function(orders){
-            var self = this;
+            var self = this,
+                order;
             
-            if(!orders instanceof Array){
-                orders = [orders];
-            }
-            
+            if(!orders instanceof Array){orders = [orders];}
             for(i = 0, len = orders.length; i < len; i++){
-                (function(){
-                    var order = orders[i],               
-                    new_order = new module.Order({creationDate:order.date_order, name:order.pos_reference, partner_id:order.partner_id, order_id:order.id, pos:self});
-                    //Get current lines from remote database                         
-                    self.fetch('pos.order.line', ['product_id', 'qty', 'discount'], [['order_id', '=', order.id]])
-                        .then(function(lines) {
-                            for (j = 0, lines_len = lines.length; j < lines_len; j++) {
-                                line = lines[j];
-                                product = self.db.get_product_by_id(line.product_id[0]);                       
-                                new_order.addProduct(new module.Product(product), {quantity:line.qty});
-                                if (line.discount > 0) {new_order.getSelectedLine().set_discount(line.discount);}
-                            }
-                        });
-                    self.get('orders').add(new_order);
-                })();
-            }            
+                order = orders[i];
+                self.create_order(order);
+            }
         },
+        
+        crete_order: function(order){
+            var self = this,
+                new_order = new module.Order({creationDate:order.date_order, 
+                                              name:order.pos_reference, 
+                                              partner_id:order.partner_id, 
+                                              order_id:order.id, 
+                                              pos:self});
+            //Get current lines from remote database                         
+            self.fetch('pos.order.line', ['product_id', 'qty', 'discount'], [['order_id', '=', order.id]])
+                .then(function(lines) {
+                    for (j = 0, lines_len = lines.length; j < lines_len; j++) {
+                        line = lines[j];
+                        product = self.db.get_product_by_id(line.product_id[0]);                       
+                        new_order.addProduct(new module.Product(product), {quantity:line.qty});
+                        if (line.discount > 0) {new_order.getSelectedLine().set_discount(line.discount);}
+                    }
+                });
+            self.get('orders').add(new_order);
+        }
     });
 
     module.CashRegister = Backbone.Model.extend({
