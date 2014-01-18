@@ -481,7 +481,7 @@ function openerp_pos_devices(instance,module){ //module is instance.point_of_sal
 
         // stops catching keyboard events 
         disconnect: function(){
-            $('body').undelegate('', 'keyup')
+            $('body').undelegate('', 'keyup');
         },
     });
     
@@ -506,7 +506,7 @@ function openerp_pos_devices(instance,module){ //module is instance.point_of_sal
         },
 
         set_action_callback: function(callback){
-            this.action_callback = callback
+            this.action_callback = callback;
         },
 
         //remove action callback
@@ -648,7 +648,7 @@ function openerp_pos_devices(instance,module){ //module is instance.point_of_sal
 
         // stops catching keyboard events 
         disconnect: function(){
-            $('body').undelegate('', 'keyup')
+            $('body').undelegate('', 'keyup');
         },
     });
 

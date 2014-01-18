@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- vim:fdl=1:
+-->
+<templates id="template" xml:space="preserve">
+
+    <t t-extend="PosWidget">
+        <t t-jquery="#order-selector" t-operation="prepend">
+            <button class="sync-button"><img src='/pos_sync/static/src/img/sync.png' /></button>
+        </t>
+    </t>
+</templates>
