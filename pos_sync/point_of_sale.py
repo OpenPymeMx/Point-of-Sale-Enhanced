@@ -51,12 +51,14 @@ class pos_order(osv.osv):
         if 'order_id' in forder:
             # border => Backend order
             border = self.browse(cr, uid, forder['order_id'], context=context)
+            # If backend order is done return delete_order
+            if border.state in ['done', 'paid']:
+                _logger.debug('Order %s is done' % border.id)
+                return 'DELETE_ORDER'
             # If sync_key not equal return bad_sync
             if (('sync_key' in forder) and (forder['sync_key'] != border.sync_key)):
+                _logger.debug('Order %s get bad syncro key' % border.id)
                 return 'BAD_SYNC_KEY'
-            # If backend order is done return delete_order
-            elif border.state == 'done':
-                return 'DELETE_ORDER'
 
         # If still here we are getting an order that must be
         # saved on database so we use create_from_ui for do it

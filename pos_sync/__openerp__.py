@@ -38,9 +38,15 @@ This module allows you to sincronyze several Point of Sales runing on same datab
     'license': 'AGPL-3',
     'depends': ['point_of_sale'],
     'installable': True,
+    'css': [
+        'static/src/css/pos_sync.css'
+    ],
     # (Mandatory) Main js file that initializate our extensions
     'js': [
         'static/src/js/pos_sync.js',
         'static/src/js/main.js',
+    ],
+    'qweb': [
+        'static/src/xml/pos_sync.xml'
     ],
 }

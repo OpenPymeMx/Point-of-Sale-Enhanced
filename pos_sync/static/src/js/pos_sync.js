@@ -1,13 +1,23 @@
+/*jslint plusplus: true */
+/*jslint node: true, stupid: true */
+
 /*
  * Function used for load syncro features on PoS
  */
 function pos_syncro (instance, module){
     "use strict";
     
+    /* ---------------- OpenERP Widgets -------------------------*/
+   
     /*
      * Extending module.OrderButtonWidget
+     * 
+     * This allow to send to backend the current order when 
+     * user switch to a new order
+     * TODO: Does we must update new order before user start
+     *       changing it's content¿?
      */
-    module.OrderButtonWidget = module.OrderButtonWidget.extend({
+    module.OrderButtonWidget.include({
         selectOrder: function(event) {
             var currentOrder = this.pos.get('selectedOrder');
             // Only push order if is set
@@ -17,6 +27,22 @@ function pos_syncro (instance, module){
             this._super(event);
         }
     });
+    
+    /*
+     * Extending module.PosWidget
+     * 
+     * This allow to register the callback function for sync button
+     */
+    module.PosWidget.include({
+        start: function() {
+            this._super();
+            self.$('.sync-button').click(function(){
+                self.pos.get_new_orders();
+            });
+        }
+    });
+    
+     /* ---------------- Backbone Objects -------------------------*/
     
     /*
      * Extending OrderModel
@@ -107,7 +133,7 @@ function pos_syncro (instance, module){
                         }
                         else if (order_data === 'BAD_SYNC_KEY') {
                             self.update_order(model);
-                            alert('Order details got from backend, no changes done');
+                            console.log('Order details got from backend, no changes done');
                         }
                         else {
                             model.set({order_id: order_data[1],
@@ -135,6 +161,29 @@ function pos_syncro (instance, module){
                         order.set({sync_key: data[0].sync_key});
                     });
             });
+        },
+        
+        get_new_orders: function(){
+            var self = this,
+                // Get all active orders on this PoS
+                orders = self.get('orders'),
+                i, len;
+            self.fetch('pos.order', ['name','session_id', 'id', 'lines','date_order', 'pos_reference', 'partner_id', 'creationDate'], [['state', '=', 'draft']])
+                .then(function(new_orders){
+                    if(!new_orders instanceof Array){new_orders = [new_orders];}
+                    for(i = 0, len = new_orders.length; i < len; i++){
+                        var order = new_orders[i],
+                            // Try to find the order on current orders
+                            model = orders.findWhere({'order_id': order.id});
+                        // Update or create the new order
+                        if(typeof model !== 'undefined') {
+                            self.update_order(order);
+                        }
+                        else {
+                            self.create_order(order);
+                        }
+                    }
+                });
         }
     });
 }
