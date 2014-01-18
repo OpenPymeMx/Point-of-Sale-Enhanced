@@ -391,7 +391,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
             }
         },
         
-        crete_order: function(order){
+        create_order: function(order){
             var self = this,
                 new_order = new module.Order({creationDate:order.date_order, 
                                               name:order.pos_reference, 

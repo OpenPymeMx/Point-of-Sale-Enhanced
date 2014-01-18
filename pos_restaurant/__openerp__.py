@@ -27,7 +27,7 @@
     'name': 'Point of Sale Tables',
     'version': '1.0.0',
     'category': 'Point Of Sale',
-    'sequence': 6,
+    'sequence': 8,
     'summary': 'Restaurant required addons for PoS',
     'description': """
 PoS addons for Restaurants
