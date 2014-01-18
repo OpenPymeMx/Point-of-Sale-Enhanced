@@ -926,6 +926,8 @@ function openerp_pos_widgets(instance, module){ //module is instance.point_of_sa
         },
       
         start: function() {
+            //FIXME: Agustín Cruz
+            //       Working on syncro module I could not bind click function to sync button  
             var self = this;
             return self.pos.ready.done(function() {
                 self.build_currency_template();

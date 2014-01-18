@@ -35,9 +35,77 @@ function pos_syncro (instance, module){
      */
     module.PosWidget.include({
         start: function() {
-            this._super();
-            self.$('.sync-button').click(function(){
-                self.pos.get_new_orders();
+            var self = this,
+                orders, len, i;
+            return self.pos.ready.done(function() {
+                self.build_currency_template();
+                self.renderElement();
+                
+                self.$('.neworder-button').click(function(){
+                    self.pos.add_new_order();
+                });
+                
+                self.$('.sync-button').click(function(){
+                    self.pos.get_new_orders();
+                });
+                
+                //when a new order is created, add an order button widget
+                self.pos.get('orders').bind('add', function(new_order){
+                    var new_order_button = new module.OrderButtonWidget(null, {
+                        order: new_order,
+                        pos: self.pos
+                    });
+                    new_order_button.appendTo($('#orders'));
+                    new_order_button.selectOrder();
+                }, self);
+
+                orders = self.pos.get('orders');
+                if (orders.length) {
+                    for (i = 0, len = orders.length; i < len; i++) {
+                        var new_order_button = new module.OrderButtonWidget(null, {
+                            order: orders.at(i),
+                            pos: self.pos
+                        });
+                        new_order_button.appendTo($('#orders'));
+                        new_order_button.selectOrder();                       
+                    }
+                }else {
+                    self.pos.get('orders').add(new module.Order({ pos: self.pos }));
+                }
+
+                self.build_widgets();
+
+                self.screen_selector.set_default_screen();
+
+                window.screen_selector = self.screen_selector;
+
+                self.pos.barcode_reader.connect();
+                
+                self.pos.keypad.connect();
+
+                instance.webclient.set_content_full_screen(true);
+
+                if (!self.pos.get('pos_session')) {
+                    self.screen_selector.show_popup('error', 'Sorry, we could not create a user session');
+                }else if(!self.pos.get('pos_config')){
+                    self.screen_selector.show_popup('error', 'Sorry, we could not find any PoS Configuration for this session');
+                }
+            
+                instance.web.unblockUI();
+                self.$('.loader').animate({opacity:0},1500,'swing',function(){self.$('.loader').hide();});
+
+                self.pos.flush();
+
+            }).fail(function(){   // error when loading models data from the backend
+                instance.web.unblockUI();
+                return new instance.web.Model("ir.model.data").get_func("search_read")([['name', '=', 'action_pos_session_opening']], ['res_id'])
+                    .pipe( _.bind(function(res){
+                        return instance.session.rpc('/web/action/load', {'action_id': res[0]['res_id']})
+                            .pipe(_.bind(function(result){
+                                var action = result.result;
+                                this.do_action(action);
+                            }, this));
+                    }, self));
             });
         }
     });
@@ -172,15 +240,15 @@ function pos_syncro (instance, module){
                 .then(function(new_orders){
                     if(!new_orders instanceof Array){new_orders = [new_orders];}
                     for(i = 0, len = new_orders.length; i < len; i++){
-                        var order = new_orders[i],
+                        var new_order = new_orders[i],
                             // Try to find the order on current orders
-                            model = orders.findWhere({'order_id': order.id});
+                            order = orders.findWhere({'order_id': new_order.id});
                         // Update or create the new order
-                        if(typeof model !== 'undefined') {
+                        if(typeof order !== 'undefined') {
                             self.update_order(order);
                         }
                         else {
-                            self.create_order(order);
+                            self.create_order(new_order);
                         }
                     }
                 });
