@@ -1,3 +1,4 @@
+/*jslint plusplus: true */
 /**
  * This file adds the models needed to load the table info in backbone
  */
@@ -67,8 +68,9 @@ function pos_restaurant_models (instance, module){
                     return self.fetch('product.uom', null, null);
                 }).then(function(units){
                     self.set('units',units);
-                    var units_by_id = {};
-                    for(var i = 0, len = units.length; i < len; i++){
+                    var units_by_id = {},
+                        i, len;
+                    for(i = 0, len = units.length; i < len; i++){
                         units_by_id[units[i].id] = units[i];
                     }
                     self.set('units_by_id',units_by_id);
@@ -164,9 +166,10 @@ function pos_restaurant_models (instance, module){
                     self.set('journals',journals);
 
                     // associate the bank statements with their journals. 
-                    var bank_statements = self.get('bank_statements');
-                    for(var i = 0, ilen = bank_statements.length; i < ilen; i++){
-                        for(var j = 0, jlen = journals.length; j < jlen; j++){
+                    var bank_statements = self.get('bank_statements'),
+                        i, ilen, j, jlen;
+                    for(i = 0, ilen = bank_statements.length; i < ilen; i++){
+                        for(j = 0, jlen = journals.length; j < jlen; j++){
                             if(bank_statements[i].journal_id[0] === journals[j].id){
                                 bank_statements[i].journal = journals[j];
                                 bank_statements[i].self_checkout_payment_method = journals[j].self_checkout_payment_method;
@@ -204,4 +207,4 @@ function pos_restaurant_models (instance, module){
         }
     });
     
-};
+}

@@ -1,3 +1,4 @@
+/*jslint plusplus: true */
 /* The db module was intended to be used to store all the data needed to run the Point of Sale.
  */
 
@@ -12,8 +13,9 @@ function pos_restaurant_db (instance,module){
          */
         get_table_list: function(){
             var list = [],
-                stored_tables = this.load('tables',{});
-            for (var i in stored_tables) {
+                stored_tables = this.load('tables',{}),
+                i;
+            for (i in stored_tables) {
                 list.push(stored_tables[i]);
             }
             return list;
@@ -28,17 +30,18 @@ function pos_restaurant_db (instance,module){
          * Add tables to local datastore
          */
         add_tables: function(tables){
-            var stored_tables = this.load('tables',{}); 
+            var stored_tables = this.load('tables',{}),
+                i, t, len; 
 
             if(!tables instanceof Array){
                 tables = [tables];
             }
-            for(var i = 0, len = tables.length; i < len; i++){
-                var t = tables[i];
+            for(i = 0, len = tables.length; i < len; i++){
+                t = tables[i];
                 stored_tables[t.id] = t;
             }
             this.save('tables',stored_tables);
-        },
+        }
     });
 
-};
+}

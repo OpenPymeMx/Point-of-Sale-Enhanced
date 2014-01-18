@@ -10,8 +10,11 @@
     width: 120px;
     height:120px;
     background:#fff;
-    border: 1px solid #fff;
+    border: 1px solid #e2e2e2;
     border-radius: 3px;
+    border-bottom-width: 3px;
+    overflow: hidden;
+    cursor: pointer;
 }
 
 .point-of-sale .table .table-img {
@@ -25,6 +28,7 @@
 .point-of-sale .table .table-img img {
     max-height: 100px;
     max-width:  120px;
+    vertical-align: middle;
 }
 
 .point-of-sale .table .table-name {
@@ -37,6 +41,13 @@
     top:auto;
     line-height: 14px;
     width:100%;
+    overflow: hidden;
+    background: -webkit-linear-gradient(-90deg,rgba(255,255,255,0),rgba(255,255,255,1), rgba(255,255,255,1));
+    background:    -moz-linear-gradient(-90deg,rgba(255,255,255,0),rgba(255,255,255,1), rgba(255,255,255,1));
+    background:     -ms-linear-gradient(-90deg,rgba(255,255,255,0),rgba(255,255,255,1), rgba(255,255,255,1));
+    /* troublesome in latest webkit
+    background:         linear-gradient(-90deg,rgba(255,255,255,0),rgba(255,255,255,1), rgba(255,255,255,1));
+    */
     background:#FFF;
     padding: 3px;
     padding-top:15px;

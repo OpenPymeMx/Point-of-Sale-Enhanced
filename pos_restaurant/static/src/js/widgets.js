@@ -1,3 +1,4 @@
+/*jslint plusplus: true */
 function pos_restaurant_widgets (instance, module) {
     // Setting Use strict
     "use strict";
@@ -17,7 +18,7 @@ function pos_restaurant_widgets (instance, module) {
             this.click_table_action = options.click_table_action;
 
             this.click_table_handler = function(event){
-                var table = self.pos.db.get_table_by_id(this.dataset['tableId']);
+                var table = self.pos.db.get_table_by_id(this.dataset.tableId);
                 options.click_table_action(table);
             };
 
@@ -48,24 +49,30 @@ function pos_restaurant_widgets (instance, module) {
 
         renderElement: function() {
             var self = this,
+                // Mixed vars used on this method 
+                list_container,
+                i, len, table_node,
+                
                 el_str  = qweb.render(this.template, {widget: this}),
                 
-            el_node = document.createElement('div');
-            el_node.innerHTML = el_str;
-            el_node = el_node.childNodes[1];
+                el_node = document.createElement('div');
+                el_node.innerHTML = el_str;
+                el_node = el_node.childNodes[1];
+                
 
             if(this.el && this.el.parentNode){
                 this.el.parentNode.replaceChild(el_node,this.el);
             }
             this.el = el_node;
 
-            var list_container = el_node.querySelector('.table-list');
-            for(var i = 0, len = this.table_list.length; i < len; i++){
-                var table_node = this.render_table(this.table_list[i]);
+            list_container = el_node.querySelector('.table-list');
+            
+            for(i = 0, len = this.table_list.length; i < len; i++){
+                table_node = this.render_table(this.table_list[i]);
                 table_node.addEventListener('click',this.click_table_handler);
                 list_container.appendChild(table_node);
-            };
-        },
+            }
+        }
     });
 	
 	/**
