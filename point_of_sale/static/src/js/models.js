@@ -409,6 +409,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                     }
                 });
             self.get('orders').add(new_order);
+            self.set('selectedOrder', new_order);
         }
     });
 

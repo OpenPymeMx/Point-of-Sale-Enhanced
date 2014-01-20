@@ -15,23 +15,19 @@ function pos_restaurant_models (instance, module){
      */
     module.PosRestaurantModel = module.PosModel;
     module.PosModel = module.PosRestaurantModel.extend({
-        // Load table information for orders
-        load_orders: function(orders){
+        // Extend the create_order function for add table information
+        create_order: function(order){
             var self = this,
-                i, len, orderscollection;
-            this._super(orders);
-            // Get orderscollection from backbone model and
-            // iterate to get the sync_key for each one
-            orderscollection = self.get('orders');
-            orderscollection.each(function(order) {
-                self.fetch('pos.order', ['table_id'], [['id', '=', order.get('order_id')]])
-                    .then(function(table_data) {
-                        var table = self.db.get_table_by_id(table_data[0].table_id[0]);
-                        order.setTable(table);
-                        //Set current order screen to products
-                        order.set_screen_data('cashier_screen','products');
-                    });
-            });
+                model = null;
+            this._super(order);
+            model = self.get('selectedOrder');
+            self.fetch('pos.order', ['table_id'], [['id', '=', model.get('order_id')]])
+                .then(function(table_data) {
+                    var table = self.db.get_table_by_id(table_data[0].table_id[0]);
+                    model.setTable(table);
+                    //Set current order screen to products
+                    model.set_screen_data('cashier_screen','products');
+                });
         },
         
         // TODO: Find a way to extend this function properly 
