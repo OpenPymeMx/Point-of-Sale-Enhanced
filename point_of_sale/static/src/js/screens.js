@@ -907,6 +907,17 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
                         self.pos_widget.screen_selector.set_current_screen(self.back_screen);
                     },
                 });
+                
+            this.print_button = this.add_action_button({
+                    label: _t('Print'),
+                    icon: '/point_of_sale/static/src/img/icons/png48/printer.png',
+                    click: function(){
+                        var currentOrder = self.pos.get('selectedOrder');
+                        if(self.pos.iface_print_via_proxy){
+                            self.pos.proxy.print_receipt(currentOrder.export_for_printing());
+                        }
+                    },
+                });
             
             this.validate_button = this.add_action_button({
                     label: _t('Validate'),
