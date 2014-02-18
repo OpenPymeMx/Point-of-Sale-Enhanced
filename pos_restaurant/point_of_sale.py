@@ -48,29 +48,3 @@ class pos_order(osv.osv):
         'table_id': fields.many2one('pos.tables', _('Table'), required=False)
     }
 
-    def create_order(self, cr, uid, order, partner_id, context=None):
-        order_id = super(pos_order, self).create_order(cr,
-                                                       uid,
-                                                       order,
-                                                       partner_id,
-                                                       context)
-
-        if 'table_id' in order:
-            self.write(cr, uid, order_id, {
-                    'table_id': order['table_id'],
-                    }, context)
-
-        return order_id
-
-    def update_order(self, cr, uid, order, partner_id, context=None):
-        super(pos_order, self).update_order(cr,
-                                            uid,
-                                            order,
-                                            partner_id,
-                                            context)
-
-        if ('order_id' in order and 'table_id' in order):
-            self.write(cr, uid, order['order_id'], {
-                           'table_id': order['table_id'] or False,
-                           }, context)
-        return order['order_id']
