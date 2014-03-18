@@ -37,7 +37,7 @@ function openerp_pos_basewidget(instance, module){ //module is instance.point_of
                 }else{
                     return this.currency.symbol + ' ' + amount;
                 }
-            }
+            };
 
         },
         show: function(){

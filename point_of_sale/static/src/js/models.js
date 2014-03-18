@@ -1,8 +1,8 @@
 function openerp_pos_models(instance, module){ //module is instance.point_of_sale
-    var QWeb = instance.web.qweb;
+    var QWeb = instance.web.qweb,
 
-    var round_di = instance.web.round_decimals;
-    var round_pr = instance.web.round_precision
+        round_di = instance.web.round_decimals,
+        round_pr = instance.web.round_precision;
     
     // The PosModel contains the Point Of Sale's representation of the backend.
     // Since the PoS must work in standalone ( Without connection to the server ) 
@@ -76,7 +76,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
 
         // helper function to load data from the server
         fetch: function(model, fields, domain, ctx){
-            return new instance.web.Model(model).query(fields).filter(domain).context(ctx).all()
+            return new instance.web.Model(model).query(fields).filter(domain).context(ctx).all();
         },
         // loads all the needed data on the sever. returns a deferred indicating when all the data has loaded. 
         load_server_data: function(){
@@ -171,7 +171,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                 }).then(function(packagings){
                     self.db.add_packagings(packagings);
 
-                    return self.fetch('pos.category', ['id','name','parent_id','child_id','image'])
+                    return self.fetch('pos.category', ['id','name','parent_id','child_id','image']);
                 }).then(function(categories){
                     self.db.add_categories(categories);
 
@@ -197,7 +197,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                 }).then(function(bank_statements){
                     var journals = new Array();
                     _.each(bank_statements,function(statement) {
-                        journals.push(statement.journal_id[0])
+                        journals.push(statement.journal_id[0]);
                     });
                     self.set('bank_statements', bank_statements);
                     return self.fetch('account.journal', undefined, [['id','in', journals]]);
@@ -279,8 +279,8 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
         // is used to skip orders that failed. do not call this method outside the mutex provided
         // by flush() 
         _flush: function(index){
-            var self = this;
-            var orders = this.db.get_orders();
+            var self = this,
+                orders = this.db.get_orders();
             self.set('nbr_pending_operations',orders.length);
 
             var order  = orders[index];
@@ -381,30 +381,36 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
         },
         
         load_orders: function(orders){
-            var self = this;
+            var self = this,
+                order;
             
-            if(!orders instanceof Array){
-                orders = [orders];
-            }
-            
+            if(!orders instanceof Array){orders = [orders];}
             for(i = 0, len = orders.length; i < len; i++){
-                (function(){
-                    var order = orders[i];                                    
-                    var new_order = new module.Order({creationDate:order.date_order, name:order.pos_reference, partner_id:order.partner_id, order_id:order.id, pos:self});
-                    //Get current lines from remote database                         
-                    self.fetch('pos.order.line', ['product_id', 'qty', 'discount'], [['order_id', '=', order.id]])
-                        .then(function(lines) {
-                            for (j = 0, lines_len = lines.length; j < lines_len; j++) {
-                                line = lines[j];
-                                product = self.db.get_product_by_id(line.product_id[0]);                       
-                                new_order.addProduct(new module.Product(product), {quantity:line.qty});
-                                if (line.discount > 0) {new_order.getSelectedLine().set_discount(line.discount)}
-                            }
-                        });
-                    self.get('orders').add(new_order);
-                })();
-            }            
+                order = orders[i];
+                self.create_order(order);
+            }
         },
+        
+        create_order: function(order){
+            var self = this,
+                new_order = new module.Order({creationDate:order.date_order, 
+                                              name:order.pos_reference, 
+                                              partner_id:order.partner_id, 
+                                              order_id:order.id, 
+                                              pos:self});
+            //Get current lines from remote database                         
+            self.fetch('pos.order.line', ['product_id', 'qty', 'discount'], [['order_id', '=', order.id]])
+                .then(function(lines) {
+                    for (j = 0, lines_len = lines.length; j < lines_len; j++) {
+                        line = lines[j];
+                        product = self.db.get_product_by_id(line.product_id[0]);                       
+                        new_order.addProduct(new module.Product(product), {quantity:line.qty});
+                        if (line.discount > 0) {new_order.getSelectedLine().set_discount(line.discount);}
+                    }
+                });
+            self.get('orders').add(new_order);
+            self.set('selectedOrder', new_order);
+        }
     });
 
     module.CashRegister = Backbone.Model.extend({
@@ -702,10 +708,13 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
         },
         addProduct: function(product, options){
             options = options || {};
-            var attr = product.toJSON();
+            var attr = product.toJSON(),
+            // Helper variable to prevent product added twice
+            added = false,
+            line = new module.Orderline({}, {pos: this.pos, order: this, product: product}),
+            self = this;
             attr.pos = this.pos;
             attr.order = this;
-            var line = new module.Orderline({}, {pos: this.pos, order: this, product: product});
 
             if(options.quantity !== undefined){
                 line.set_quantity(options.quantity);
@@ -714,10 +723,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                 line.set_unit_price(options.price);
             }
             
-            // Helper variable to prevent product added twice
-            var added = false;
             if(this.get('orderLines').at(this.get('orderLines').length -1)){
-            	self = this; 
             	this.get('orderLines').each(function(last_orderline){
                     if(last_orderline && last_orderline.can_be_merged_with(line) && options.merge !== false){
                         last_orderline.merge(line);

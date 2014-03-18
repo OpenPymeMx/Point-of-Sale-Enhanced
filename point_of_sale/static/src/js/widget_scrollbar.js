@@ -48,7 +48,7 @@ function openerp_pos_scrollbar(instance, module){ //module is instance.point_of_
             };
             this.target_mousewheel_handler = function(event,delta){
                 self.scroll(delta*self.wheel_step);
-            }
+            };
         },
 
         renderElement: function(){

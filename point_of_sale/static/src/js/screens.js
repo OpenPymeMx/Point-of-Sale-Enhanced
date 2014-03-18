@@ -219,7 +219,7 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
             this.pos.proxy.scan_item_success(ean);
             var last_orderline = this.pos.get('selectedOrder').getLastOrderline();
             if(last_orderline){
-                last_orderline.set_discount(ean.value)
+                last_orderline.set_discount(ean.value);
             }
         },
         
@@ -602,7 +602,7 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
             if(!running){
                 run();
             }
-        }
+        };
 
         // remove all jobs from the schedule
         this.clear = function(){
@@ -664,7 +664,7 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
 
                             var cashregister = selfCheckoutRegisters[0] || self.pos.get('cashRegisters').models[0];
                             currentOrder.addPaymentLine(cashregister);
-                            self.pos.push_order(currentOrder.exportAsJSON())
+                            self.pos.push_order(currentOrder.exportAsJSON());
                             currentOrder.destroy();
                             self.pos.proxy.transaction_end();
                             self.pos_widget.screen_selector.set_current_screen(self.next_screen);
@@ -679,7 +679,7 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
                         def.resolve();
                     });
                 return def;
-            }
+            };
             
             // cancels a payment.
             this.cancel = function(){
@@ -690,7 +690,7 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
                     self.queue.clear();
                 }
                 return (new $.Deferred()).resolve();
-            }
+            };
             
             if(this.pos.get('selectedOrder').getDueLeft() <= 0){
                 this.pos_widget.screen_selector.show_popup('error-negative-price');
@@ -907,6 +907,17 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
                         self.pos_widget.screen_selector.set_current_screen(self.back_screen);
                     },
                 });
+                
+            this.print_button = this.add_action_button({
+                    label: _t('Print'),
+                    icon: '/point_of_sale/static/src/img/icons/png48/printer.png',
+                    click: function(){
+                        var currentOrder = self.pos.get('selectedOrder');
+                        if(self.pos.iface_print_via_proxy){
+                            self.pos.proxy.print_receipt(currentOrder.export_for_printing());
+                        }
+                    },
+                });
             
             this.validate_button = this.add_action_button({
                     label: _t('Validate'),
@@ -931,7 +942,7 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
         validateCurrentOrder: function() {
             var currentOrder = this.pos.get('selectedOrder');
 
-            this.pos.push_order(currentOrder.exportAsJSON()) 
+            this.pos.push_order(currentOrder.exportAsJSON());
             if(this.pos.iface_print_via_proxy){
                 this.pos.proxy.print_receipt(currentOrder.export_for_printing());
                 this.pos.get('selectedOrder').destroy();    //finish order and go back to scan screen

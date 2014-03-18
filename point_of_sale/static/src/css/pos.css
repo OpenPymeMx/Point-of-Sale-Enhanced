@@ -119,6 +119,10 @@
     background: #393939;
     background: -moz-linear-gradient(#7b7979, #393939);
     background: -webkit-gradient(linear, left top, left bottom, from(#7b7979), to(#393939));
+    /*
+     *   Temporal workaround for hidden orders on topbar 
+     */
+    z-index: 1;
 }
 
 /*  a) The left part of the top-bar */

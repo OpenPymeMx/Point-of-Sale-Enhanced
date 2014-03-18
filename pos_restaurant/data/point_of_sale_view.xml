@@ -1,0 +1,116 @@
+<?xml version="1.0"?>
+<openerp>
+    <data>
+        <!-- ==============================
+            Restaurant Menu
+        ============================== -->
+    
+        <menuitem  id="pos_restaurant_menu" 
+                   name="Restaurant" 
+                   parent="point_of_sale.menu_point_root" 
+                   sequence="16" />
+        
+        <!-- ==============================
+            Table Master
+        ============================== -->
+        <record model="ir.ui.view" id="view_pos_restaurant_tables_form">
+            <field name="name">pos_restaurant_tables.form</field>
+            <field name="model">pos.tables</field>
+            <field name="arch" type="xml">
+                <form string="Tables Detail" version="7.0">
+                    <sheet>
+                        <group>
+                            <field name="name" select="1" />
+                            <field name="capacity" />
+                            <field name="company_id" groups="base.group_multi_company"/>
+                        </group>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+        
+        <record model="ir.ui.view" id="view_pos_restaurant_tables_search">
+            <field name="name">pos_restaurant_tables.search</field>
+            <field name="model">pos.tables</field>
+            <field name="arch" type="xml">
+                <search string="Tables Detail">
+                    <field name="name"/>
+                    <field name="capacity"/>
+                    <newline/>
+                    <group expand="0" string="Group By...">
+                        <filter name="capacity" string="Capacity" icon="terp-stock_symbol-selection" context="{'group_by':'capacity'}" />
+                    </group>
+                </search>
+            </field>
+        </record>
+        
+        <record model="ir.ui.view" id="view_pos_restaurant_tables_tree">
+            <field name="name">pos_restaurant_tables.tree</field>
+            <field name="model">pos.tables</field>
+            <field name="arch" type="xml">
+                <tree string="Tables Detail">
+                    <field name="name"/>
+                    <field name="capacity"/>
+                    <field name="company_id" groups="base.group_multi_company"/>
+                </tree>
+            </field>
+        </record>
+        
+        <record model="ir.actions.act_window" id="open_view_pos_restaurant_tables_form_tree">
+            <field name="name">Tables Details</field>
+            <field name="res_model">pos.tables</field>
+            <field name="view_type">form</field>
+            <field name="view_mode">tree,form</field>
+        </record>
+        
+        <menuitem name="Tables"
+                  id="menu_open_view_pos_restaurant_tables_form_tree"
+                  action="open_view_pos_restaurant_tables_form_tree"
+                  parent="pos_restaurant_menu"
+                  groups="point_of_sale.group_pos_manager,point_of_sale.group_pos_user"
+                  />
+                  
+        <!-- ==============================
+            PoS Orders views
+        ============================== -->
+        <record model="ir.ui.view" id="view_pos_restaurant_pos_form">
+            <field name="name">pos_restaurant.order</field>
+            <field name="model">pos.order</field>
+            <field name="inherit_id" ref="point_of_sale.view_pos_pos_form" />
+            <field name="arch" type="xml">
+                <data>
+                    <xpath expr="/form/sheet/group/field[@name='partner_id']" position="after">
+                        <field name="table_id" />
+                    </xpath>
+                </data>
+            </field>
+        </record>
+        
+        <record model="ir.ui.view" id="view_pos_restaurant_pos_order_filter">
+            <field name="name">pos_restaurant.list.select</field>
+            <field name="model">pos.order</field>
+            <field name="inherit_id" ref="point_of_sale.view_pos_order_filter" />
+            <field name="arch" type="xml">
+                <data>
+                    <xpath expr="/search/group/filter[@string='Order Date']" position="after">
+                        <filter name="table_id" string="Table" icon="terp-stock_symbol-selection" context="{'group_by':'table_id'}" />
+                    </xpath>
+                </data>
+            </field>
+        </record>
+
+        <record model="ir.ui.view" id="view_pos_restaurant_pos_order_tree">
+            <field name="name">pos_restaurant.order_tree</field>
+            <field name="model">pos.order</field>
+            <field name="inherit_id" ref="point_of_sale.view_pos_order_tree" />
+            <field name="arch" type="xml">
+                <data>
+                    <xpath expr="/tree/field[@name='partner_id']" position="after">
+                        <field name="table_id" />
+                    </xpath>
+                </data>
+            </field>
+        </record>
+                
+    </data>
+</openerp>

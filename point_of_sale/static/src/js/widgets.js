@@ -603,10 +603,10 @@ function openerp_pos_widgets(instance, module){ //module is instance.point_of_sa
 
         // filters the products, and sets up the search callbacks
         search_and_categories: function(category){
-            var self = this;
+            var self = this,
 
             // find all products belonging to the current category
-            var products = this.pos.db.get_product_by_category(this.category.id);
+            products = this.pos.db.get_product_by_category(this.category.id);
             self.pos.get('products').reset(products);
 
             // filter the products according to the search string
@@ -926,6 +926,8 @@ function openerp_pos_widgets(instance, module){ //module is instance.point_of_sa
         },
       
         start: function() {
+            //FIXME: Agustín Cruz
+            //       Working on syncro module I could not bind click function to sync button  
             var self = this;
             return self.pos.ready.done(function() {
                 self.build_currency_template();
@@ -1200,7 +1202,7 @@ function openerp_pos_widgets(instance, module){ //module is instance.point_of_sa
         try_close: function() {
             var self = this;
             //TODO : do the close after the flush...
-            self.pos.flush()
+            self.pos.flush();
             self.close();
         },
         close: function() {
@@ -1270,7 +1272,7 @@ function openerp_pos_widgets(instance, module){ //module is instance.point_of_sa
                             model: customer,
                             next_screen: 'products',
                             click_customer_action: self.click_customer_action,
-                    })
+                    });
                     self.customer_list.push(customer);
                     return customer;
                 })

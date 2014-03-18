@@ -482,7 +482,7 @@ class pos_order(osv.osv):
     _order = "id desc"
 
     def create_from_ui(self, cr, uid, orders, context=None):
-        #_logger.info("orders: %r", orders)
+        _logger.debug("orders: %r", orders)
         order_ids = []
         for tmp_order in orders:
             order = tmp_order['data']
@@ -592,11 +592,11 @@ class pos_order(osv.osv):
                 self.pool.get('pos.order.line').unlink(cr, uid,a['id'],context)
           
             for lin in new_lines:
-               if lin['product_id']  not in  dic_current:
-                  lin['order_id'] = order_id
-                  self.pool.get('pos.order.line').create(cr, uid, lin, context)
-               else: 
-                   self.pool.get('pos.order.line').write(cr, uid,dic_current[lin['product_id']]['id'], {                               
+                if lin['product_id']  not in  dic_current:
+                    lin['order_id'] = order_id
+                    self.pool.get('pos.order.line').create(cr, uid, lin, context)
+                else:
+                    self.pool.get('pos.order.line').write(cr, uid, dic_current[lin['product_id']]['id'], {
                               'discount':lin['discount'],
                               'price_unit':lin['price_unit'],
                               'qty':lin['qty'],

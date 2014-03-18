@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<openerp>
+    <data>
+        <!-- ==============================
+            Multicompany security
+        ============================== -->
+        
+        <record model="ir.rule" id="pos_restaurant_tables">
+            <field name="name">pos_restaurant.pos_tables multi-company</field>
+            <field name="model_id" ref="model_pos_tables"/>
+            <field name="global" eval="True"/>
+            <field name="domain_force">['|',('company_id','child_of',[user.company_id.id]),('company_id','=',False)]</field>
+        </record>
+        
+    </data>
+</openerp>
