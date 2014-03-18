@@ -1,9 +1,9 @@
-/*jslint plusplus: true */
+/*jshint plusplus: true */
 function pos_restaurant_widgets (instance, module) {
     // Setting Use strict
     "use strict";
     
-	// We need to initthe point_of_sale model to append our custom widgets
+	// We need to initialize the point_of_sale model to append our custom widgets
 	var qweb = instance.web.qweb;
 
 	// Widget for display table list
@@ -93,4 +93,4 @@ function pos_restaurant_widgets (instance, module) {
             this.screen_selector.default_cashier_screen = 'tables';
 		}
 	});
-};
+}

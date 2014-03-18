@@ -1,4 +1,4 @@
-/*jslint plusplus: true */
+/*jshint plusplus: true */
 /**
  * This file adds the models needed to load the table info in backbone
  */
@@ -152,7 +152,7 @@ function pos_restaurant_models (instance, module){
                         [['state','=','open'],['pos_session_id', '=', self.get('pos_session').id]]
                     );
                 }).then(function(bank_statements){
-                    var journals = new Array();
+                    var journals = [];
                     _.each(bank_statements,function(statement) {
                         journals.push(statement.journal_id[0]);
                     });
@@ -182,6 +182,14 @@ function pos_restaurant_models (instance, module){
     // Extends module.Order to include tables related functions
     module.PosRestaurantOrder = module.Order;
     module.Order = module.PosRestaurantOrder.extend({
+        // exports as JSON for receipt printing
+        export_for_printing: function(){
+            var dict = this._super(),
+                table = this.get('table');
+            if (typeof table !== 'undefined') {dict.table = table.name;}
+            return dict;
+        },
+        
         exportAsJSON: function() {
             var dict = this._super(),
                 table = this.get('table');
