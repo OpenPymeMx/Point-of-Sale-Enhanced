@@ -39,11 +39,7 @@ It is compatible with all PC tablets and the iPad, offering multiple payment met
 Main Features
 -------------
 * Add tables for track Orders
-* Choose one payment method (the quick way) or split the payment between several payment methods
-* Computation of the amount of money to return
-* Create and confirm the picking list automatically
-* Allows the user to create an invoice automatically
-* Refund previous sales
+
     """,
     'author': 'OpenPyme',
     'website': 'www.openpyme.mx',
