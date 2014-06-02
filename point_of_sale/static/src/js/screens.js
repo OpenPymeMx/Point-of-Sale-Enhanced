@@ -790,6 +790,9 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
             if(this.pos.iface_vkeyboard){
                 this.pos_widget.onscreen_keyboard.connect();
             }
+            
+            // Set focus on search box
+            document.getElementById("searchbox").focus();
 
             if(this.pos_widget.screen_selector.current_mode === 'client'){ 
                 this.add_action_button({

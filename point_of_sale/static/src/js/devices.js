@@ -8,7 +8,7 @@ function openerp_pos_devices(instance,module){ //module is instance.point_of_sal
     module.ProxyDevice  = instance.web.Class.extend({
         init: function(options){
             options = options || {};
-            url = options.url || 'http://localhost:8069';
+            url = options.url || 'http://localhost:8080';
             
             this.weight = 0;
             this.weighting = false;
@@ -579,6 +579,13 @@ function openerp_pos_devices(instance,module){ //module is instance.point_of_sal
                 110: '.',
                 111: '/',
             };
+            
+            // Catch keydown events anywhere in the POS interface for prevent backspace default
+            $('body').delegate('','keydown', function (e){
+                if (e.which === 8 && !$(e.target).is("input, textarea")) {
+                    e.preventDefault();
+                }
+            });
 
             // Catch keyup events anywhere in the POS interface.  Barcode reader also does this, but won't interfere
             // because it looks for a specific timing between keyup events. On the plus side this should mean that you
@@ -623,7 +630,7 @@ function openerp_pos_devices(instance,module){ //module is instance.point_of_sal
                      * This is commented out for now. We don't want to interfere with
                      * the 'Enter' keycode used by the barcode reader to signify a scan.
                      */
-                    // Void the last line of the order only if there isn't another line in pregress.
+                    // Void the last line of the order only if there isn't another line in progress.
 //                    if (codeNumbers.length === 0) {
 //                        parse_result.void_last_line = true;
 //                        var res = self.copy_parse_result(parse_result);
@@ -649,6 +656,7 @@ function openerp_pos_devices(instance,module){ //module is instance.point_of_sal
         // stops catching keyboard events 
         disconnect: function(){
             $('body').undelegate('', 'keyup');
+            $('body').undelegate('', 'keydown');
         },
     });
 
