@@ -488,6 +488,9 @@ function openerp_pos_devices(instance,module){ //module is instance.point_of_sal
     // this module mimics a keypad-only cash register. Use connect() and 
     // disconnect() to activate and deactivate it. Use set_action_callback to
     // tell it what to do when the cashier enters product data(qty, price, etc).
+    // TODO: Implement this using one of this two backbone plugins:
+    //  - https://github.com/bry4n/backbone-shortcuts
+    //  - https://github.com/rpocklin/backbone-hotkeys 
     module.Keypad = instance.web.Class.extend({
         init: function(attributes){
             this.pos = attributes.pos;
@@ -543,7 +546,7 @@ function openerp_pos_devices(instance,module){ //module is instance.point_of_sal
 
         // starts catching keyboard events and tries to interpret keystrokes, 
         // calling the callback when needed.
-        connect: function(){
+        connect: function() {
             var self = this;
             var KC_PLU = 107;      // KeyCode: Product Code (Keypad '+')
             var KC_QTY = 111;      // KeyCode: Quantity (Keypad '/')
@@ -552,6 +555,7 @@ function openerp_pos_devices(instance,module){ //module is instance.point_of_sal
             var KC_VOID = 13;      // KeyCode: Void current line (Keyboard/Keypad Enter key)
             var KC_CLR1 = 46;      // KeyCode: Clear last line of order (Keyboard Delete key)
             var KC_CLR2 = 8;       // KeyCode: Clear current line (Keyboard Backspace key)
+            var KC_ESC = 27;       // KeyCode: Back to default mode focus on searchbox (Keyboard Escape key)
             var codeNumbers = [];
             var codeChars = [];
             var parse_result = {
@@ -584,6 +588,11 @@ function openerp_pos_devices(instance,module){ //module is instance.point_of_sal
             $('body').delegate('','keydown', function (e){
                 if (e.which === 8 && !$(e.target).is("input, textarea")) {
                     e.preventDefault();
+                }
+                if (e.ctrlKey && e.keyCode === 70) {
+                    e.preventDefault();
+                    // Set focus on search box
+                    document.getElementById("searchbox").focus();
                 }
             });
 
@@ -645,6 +654,10 @@ function openerp_pos_devices(instance,module){ //module is instance.point_of_sal
                     // In the future we might want it to display a popup or something.
                     if (token === KC_CLR1 || token === KC_CLR2) {
                         ;
+                    }
+                    // Presing ESC reset focus on product screen
+                    if (token === KC_ESC) {
+                        document.getElementById("searchbox").focus();
                     }
                     codeNumbers = [];
                     codeChars = [];
