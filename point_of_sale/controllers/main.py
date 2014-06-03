@@ -183,4 +183,10 @@ class PointOfSaleController(openerp.addons.web.http.Controller):
         print 'print_pdf_invoice' + str(pdfinvoice)
         return
 
-
+    @openerp.addons.web.http.jsonrequest
+    def is_alive(self, request):
+        """
+        The PoS will activate the method payment 
+        """
+        print "Testing live connection with ProxyPoS"
+        return 'bad'

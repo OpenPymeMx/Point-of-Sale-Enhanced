@@ -42,6 +42,7 @@ function openerp_pos_db(instance, module){
 
             this.product_by_id = {};
             this.product_by_ean13 = {};
+            this.product_by_code = {};
             this.product_by_category_id = {};
 
             this.category_by_id = {};
@@ -197,6 +198,9 @@ function openerp_pos_db(instance, module){
                 if(product.ean13){
                     this.product_by_ean13[product.ean13] = product;
                 }
+                if(product.code){
+                    this.product_by_code[product.code] = product;
+                }                
             }
         },
         add_packagings: function(packagings){
@@ -269,6 +273,9 @@ function openerp_pos_db(instance, module){
                 return this.product_by_id[pack.product_id[0]];
             }
             return undefined;
+        },
+        get_product_by_code: function(code){
+            return this.product_by_code[code];
         },
         get_product_by_category: function(category_id){
             var product_ids  = this.product_by_category_id[category_id];

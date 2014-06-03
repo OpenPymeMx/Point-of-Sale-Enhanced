@@ -223,13 +223,30 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
             }
         },
         
-        // what happens when a product is entered by keypad emulator : 
-        // it will add the product to the order.
+        // What happens when a product is entered by keypad emulator is based on current_screen context
+        // 
+        // Product screen  -> it will add the product to the order.
+        // Payment screen -> try to emulate click on validate button. 
         keypad_product_action: function(data){
-            var self = this;
-            if(self.pos.keypad_enter_product(data)){
+            var self = this,
+                current_screen = self.pos_widget.screen_selector.current_screen;
+            
+            if(current_screen.template == 'PaymentScreenWidget' && data.void_last_line) {
+            // If context => PaymentScreenWidget then try to validate the order
+                if(!current_screen.validate_button.disabled){
+                    current_screen.validate_button.click_action();
+                } 
+            } else if(self.pos.keypad_enter_product(data)){
+            // If other context try to add a product to the current order
                 self.pos.proxy.keypad_item_success(data);
-            }else{
+            } else if(current_screen.template == 'ProductScreenWidget' && self.pos_widget.numpad_visible) {
+            // If context => ProductScreenWidget try to set a payment method for current order
+                self.pos_widget.paypad.$('button').each(function(number) {
+                    if(number == data.kc_functions) {
+                        $(this).click();
+                    }
+                });
+            } else{
                 self.pos.proxy.keypad_item_error_unrecognized(data);
                 if(self.product_error_popup && self.pos_widget.screen_selector.get_user_mode() === 'cashier'){
                     self.pos_widget.screen_selector.show_popup(self.product_error_popup);
@@ -415,7 +432,7 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
         },
     });
 
-    module.ErrorPopupWidget = module.PopUpWidget.extend({
+        module.ErrorPopupWidget = module.PopUpWidget.extend({
         template:'ErrorPopupWidget',
         show: function(){
             var self = this;
