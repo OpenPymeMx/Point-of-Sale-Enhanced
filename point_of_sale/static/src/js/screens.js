@@ -223,10 +223,20 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
             }
         },
         
-        // what happens when a product is entered by keypad emulator : 
-        // it will add the product to the order.
+        // What happens when a product is entered by keypad emulator is based on current_screen context
+        // 
+        // Product screen  -> it will add the product to the order.
+        // Payment screen -> try to emulate click on validate button. 
         keypad_product_action: function(data){
-            var self = this;
+            var self = this,
+                current_screen = self.pos_widget.screen_selector.current_screen;
+            
+            // If context => PaymentScreenWidget then try to validate the order
+            if(current_screen.template == 'PaymentScreenWidget' && data.void_last_line) {
+                if(!current_screen.validate_button.disabled){
+                    current_screen.validate_button.click_action();
+                } 
+            }
             if(self.pos.keypad_enter_product(data)){
                 self.pos.proxy.keypad_item_success(data);
             }else{

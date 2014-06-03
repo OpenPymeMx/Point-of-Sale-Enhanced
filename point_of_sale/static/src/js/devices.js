@@ -8,7 +8,7 @@ function openerp_pos_devices(instance,module){ //module is instance.point_of_sal
     module.ProxyDevice  = instance.web.Class.extend({
         init: function(options){
             options = options || {};
-            url = options.url || 'http://localhost:8080';
+            url = options.url || 'http://localhost:8069';
             
             this.weight = 0;
             this.weighting = false;
@@ -488,9 +488,8 @@ function openerp_pos_devices(instance,module){ //module is instance.point_of_sal
     // this module mimics a keypad-only cash register. Use connect() and 
     // disconnect() to activate and deactivate it. Use set_action_callback to
     // tell it what to do when the cashier enters product data(qty, price, etc).
-    // TODO: Implement this using one of this two backbone plugins:
-    //  - https://github.com/bry4n/backbone-shortcuts
-    //  - https://github.com/rpocklin/backbone-hotkeys 
+    // TODO: Implement this using one of this project:
+    //  - https://github.com/madrobby/keymaster/
     module.Keypad = instance.web.Class.extend({
         init: function(attributes){
             this.pos = attributes.pos;
@@ -601,7 +600,6 @@ function openerp_pos_devices(instance,module){ //module is instance.point_of_sal
             // can use both the keypad and the barcode reader during the same session (but for separate order lines).
             // This could be useful in cases where the scanner can't read the barcode.
             $('body').delegate('','keyup', function (e){
-                console.log('keyup:'+String.fromCharCode(e.keyCode)+' '+e.keyCode,e);
                 //We only care about numbers and modifiers
                 token = e.keyCode;                
                 if ((token >= 96 && token <= 111) || token === KC_PLU || token === KC_QTY || token === KC_AMT) {
@@ -612,43 +610,41 @@ function openerp_pos_devices(instance,module){ //module is instance.point_of_sal
                         codeNumbers = [];
                         codeChars = [];
                         self.reset_parse_result(parse_result);
-                        console.log('PLU token: code:'+res.code+', qty:'+res.qty+', price:'+res.price+', discount:'+res.discount);
                         self.action_callback(res);
                     } else if (token === KC_QTY) {
                         parse_result.qty = parseInt(codeChars.join(''));
                         codeNumbers = [];
                         codeChars = [];
-                        console.log('QTY token: qty:'+parse_result.qty);
                     } else if (token === KC_AMT) {
                         parse_result.price = parseFloat(codeChars.join('')).toFixed(2);
                         parse_result.priceOverride = true;
                         codeNumbers = [];
                         codeChars = [];
-                        console.log('AMT token: price:'+parse_result.price);
                     } else if (token === KC_DISC) {
                         parse_result.discount = parseFloat(codeChars.join(''));
                         codeNumbers = [];
                         codeChars = [];
-                        console.log('DISC token: discount:'+parse_result.discount);
                     } else {
                         codeNumbers.push(token - 48);
                         codeChars.push(kc_lookup[token]);
                     }
                 } else if (token === KC_VOID) {
                     /*
+                     * TODO: Is this true???
                      * This is commented out for now. We don't want to interfere with
                      * the 'Enter' keycode used by the barcode reader to signify a scan.
+                     * 
                      */
-                    // Void the last line of the order only if there isn't another line in progress.
-//                    if (codeNumbers.length === 0) {
-//                        parse_result.void_last_line = true;
-//                        var res = self.copy_parse_result(parse_result);
-//                        codeNumbers = [];
-//                        codeChars = [];
-//                        self.reset_parse_result(parse_result);
-//                        console.log('VOID token:'+res.void_last_line);
-//                        self.action_callback(res);
-//                    }
+                    // Send signal to action_callback function to process the enter
+                    // according to the currently active screen
+                    if (codeNumbers.length === 0) {
+                        parse_result.void_last_line = true;
+                        var res = self.copy_parse_result(parse_result);
+                        codeNumbers = [];
+                        codeChars = [];
+                        self.reset_parse_result(parse_result);
+                        self.action_callback(res);
+                    }
                 } else {
                     // For now pressing Backspace or Delete just defaults to doing nothing.
                     // In the future we might want it to display a popup or something.
