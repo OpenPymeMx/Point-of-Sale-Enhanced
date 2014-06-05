@@ -654,7 +654,10 @@ function openerp_pos_devices(instance,module){ //module is instance.point_of_sal
                     /*
                      * Process function keys so we can set payment method based on them
                      */
-                    var res = [];
+                    var res = {};
+                    codeNumbers = [];
+                    codeChars = [];
+                    self.reset_parse_result(parse_result);
                     res.kc_functions = kc_functions[token];
                     self.action_callback(res);
                 } else if (token === KC_VOID) {
@@ -666,14 +669,12 @@ function openerp_pos_devices(instance,module){ //module is instance.point_of_sal
                      */
                     // Send signal to action_callback function to process the enter
                     // according to the currently active screen
-                    if (codeNumbers.length === 0) {
-                        parse_result.void_last_line = true;
-                        var res = self.copy_parse_result(parse_result);
-                        codeNumbers = [];
-                        codeChars = [];
-                        self.reset_parse_result(parse_result);
-                        self.action_callback(res);
-                    }
+                    parse_result.void_last_line = true;
+                    var res = self.copy_parse_result(parse_result);
+                    codeNumbers = [];
+                    codeChars = [];
+                    self.reset_parse_result(parse_result);
+                    self.action_callback(res);
                 } else {
                     // For now pressing Backspace or Delete just defaults to doing nothing.
                     // In the future we might want it to display a popup or something.
