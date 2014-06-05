@@ -73,7 +73,7 @@
 
     <t t-name="PaypadWidget">
         <div id="paypad">
-            <div id="placeholder-prodWidget"></div>
+            <!-- <div id="placeholder-prodWidget"></div>  -->
         </div>
     </t>
     
