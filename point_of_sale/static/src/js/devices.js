@@ -583,18 +583,18 @@ function openerp_pos_devices(instance,module){ //module is instance.point_of_sal
                     111: '/',
                 },
                 kc_functions = {
-                    112: '1',   //F1
-                    113: '2',   //F2
-                    114: '3',   //F3
-                    115: '4',   //F4
-                    116: '5',   //F5
-                    117: '6',   //F6
-                    118: '7',   //F7
-                    119: '8',   //F8
-                    120: '9',   //F9
-                    121: '10',   //F10
-                    122: '11',   //F11
-                    123: '12',   //F12
+                    112: '0',   //F1
+                    113: '1',   //F2
+                    114: '2',   //F3
+                    115: '3',   //F4
+                    116: '4',   //F5
+                    117: '5',   //F6
+                    118: '6',   //F7
+                    119: '7',   //F8
+                    120: '8',   //F9
+                    121: '9',   //F10
+                    122: '10',   //F11
+                    123: '11',   //F12
                 };
             
             // Catch keydown events anywhere in the POS interface for prevent backspace default
