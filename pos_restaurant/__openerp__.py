@@ -59,7 +59,6 @@ Main Features
         'data/point_of_sale_data.xml',
     ],
     'demo': [
-        'point_of_sale_demo.xml',
     ],
     'test': [
     ],
