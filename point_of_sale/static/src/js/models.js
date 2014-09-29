@@ -857,7 +857,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                 cashier: cashier ? cashier.name : null,
                 date: { 
                     year: date.getFullYear(), 
-                    month: date.getMonth(), 
+                    month: date.getMonth()+1,   // http://stackoverflow.com/questions/10211145/getting-current-date-and-time-in-javascript 
                     date: date.getDate(),       // day of the month 
                     day: date.getDay(),         // day of the week 
                     hour: date.getHours(), 
