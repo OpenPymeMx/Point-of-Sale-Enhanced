@@ -19,8 +19,8 @@ function openerp_pos_basewidget(instance, module){ //module is instance.point_of
         },
         build_currency_template: function(){
 
-            if(this.pos && this.pos.get('currency')){
-                this.currency = this.pos.get('currency');
+            if(this.pos && this.pos.currency){
+                this.currency = this.pos.currency;
             }else{
                 this.currency = {symbol: '$', position: 'after', rounding: 0.01};
             }
@@ -33,18 +33,22 @@ function openerp_pos_basewidget(instance, module){ //module is instance.point_of
                     amount = amount.toFixed(decimals);
                 }
                 if(this.currency.position === 'after'){
-                    return amount + ' ' + this.currency.symbol;
+                    return amount + ' ' + (this.currency.symbol || '');
                 }else{
-                    return this.currency.symbol + ' ' + amount;
+                    return (this.currency.symbol || '') + ' ' + amount;
                 }
-            };
+            }
 
         },
         show: function(){
-            this.$el.show();
+            this.$el.removeClass('oe_hidden');
         },
         hide: function(){
-            this.$el.hide();
+            this.$el.addClass('oe_hidden');
+        },
+        format_pr: function(value,precision){
+            var decimals = precision > 0 ? Math.max(0,Math.ceil(Math.log(1.0/precision) / Math.log(10))) : 0;
+            return value.toFixed(decimals);
         },
     });
 

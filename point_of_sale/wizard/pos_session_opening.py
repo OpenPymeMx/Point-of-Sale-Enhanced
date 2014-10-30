@@ -1,5 +1,4 @@
 
-from openerp import netsvc
 from openerp.osv import osv, fields
 from openerp.tools.translate import _
 
@@ -16,7 +15,7 @@ class pos_session_opening(osv.osv_memory):
                                      type='selection',
                                      selection=pos_session.POS_SESSION_STATE,
                                      string='Session Status', readonly=True),
-        'pos_state_str' : fields.char('Status', 32, readonly=True),
+        'pos_state_str' : fields.char('Status', readonly=True),
         'show_config' : fields.boolean('Show Config', readonly=True),
         'pos_session_name' : fields.related('pos_session_id', 'name',
                                             type='char', size=64, readonly=True),
@@ -25,20 +24,18 @@ class pos_session_opening(osv.osv_memory):
     }
 
     def open_ui(self, cr, uid, ids, context=None):
-        context = context or {}
         data = self.browse(cr, uid, ids[0], context=context)
+        context = dict(context or {})
         context['active_id'] = data.pos_session_id.id
         return {
-            'type' : 'ir.actions.client',
-            'name' : _('Start Point Of Sale'),
-            'tag' : 'pos.ui',
-            'context' : context
+            'type' : 'ir.actions.act_url',
+            'url':   '/pos/web/',
+            'target': 'self',
         }
 
     def open_existing_session_cb_close(self, cr, uid, ids, context=None):
-        wf_service = netsvc.LocalService("workflow")
         wizard = self.browse(cr, uid, ids[0], context=context)
-        wf_service.trg_validate(uid, 'pos.session', wizard.pos_session_id.id, 'cashbox_control', cr)
+        wizard.pos_session_id.signal_workflow('cashbox_control')
         return self.open_session_cb(cr, uid, ids, context)
 
     def open_session_cb(self, cr, uid, ids, context=None):
@@ -117,4 +114,3 @@ class pos_session_opening(osv.osv_memory):
             'pos_config_id' : result,
             'show_config' : show_config,
         }
-pos_session_opening()

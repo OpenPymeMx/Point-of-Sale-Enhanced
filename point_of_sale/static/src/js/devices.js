@@ -1,16 +1,97 @@
 
 function openerp_pos_devices(instance,module){ //module is instance.point_of_sale
+	var _t = instance.web._t;
+
+    // the JobQueue schedules a sequence of 'jobs'. each job is
+    // a function returning a deferred. the queue waits for each job to finish 
+    // before launching the next. Each job can also be scheduled with a delay. 
+    // the  is used to prevent parallel requests to the proxy.
+
+    module.JobQueue = function(){
+        var queue = [];
+        var running = false;
+        var scheduled_end_time = 0;
+        var end_of_queue = (new $.Deferred()).resolve();
+        var stoprepeat = false;
+
+        var run = function(){
+            if(end_of_queue.state() === 'resolved'){
+                end_of_queue =  new $.Deferred();
+            }
+            if(queue.length > 0){
+                running = true;
+                var job = queue[0];
+                if(!job.opts.repeat || stoprepeat){
+                    queue.shift();
+                    stoprepeat = false;
+                }
+
+                // the time scheduled for this job
+                scheduled_end_time = (new Date()).getTime() + (job.opts.duration || 0);
+
+                // we run the job and put in def when it finishes
+                var def = job.fun() || (new $.Deferred()).resolve();
+                
+                // we don't care if a job fails ... 
+                def.always(function(){
+                    // we run the next job after the scheduled_end_time, even if it finishes before
+                    setTimeout(function(){
+                        run();
+                    }, Math.max(0, scheduled_end_time - (new Date()).getTime()) ); 
+                });
+            }else{
+                running = false;
+                scheduled_end_time = 0;
+                end_of_queue.resolve();
+            }
+        };
+        
+        // adds a job to the schedule.
+        // opts : {
+        //    duration    : the job is guaranteed to finish no quicker than this (milisec)
+        //    repeat      : if true, the job will be endlessly repeated
+        //    important   : if true, the scheduled job cannot be canceled by a queue.clear()
+        // }
+        this.schedule  = function(fun, opts){
+            queue.push({fun:fun, opts:opts || {}});
+            if(!running){
+                run();
+            }
+        }
+
+        // remove all jobs from the schedule (except the ones marked as important)
+        this.clear = function(){
+            queue = _.filter(queue,function(job){job.opts.important === true}); 
+        };
+
+        // end the repetition of the current job
+        this.stoprepeat = function(){
+            stoprepeat = true;
+        };
+        
+        // returns a deferred that resolves when all scheduled 
+        // jobs have been run.
+        // ( jobs added after the call to this method are considered as well )
+        this.finished = function(){
+            return end_of_queue;
+        }
+
+    };
+
 
     // this object interfaces with the local proxy to communicate to the various hardware devices
     // connected to the Point of Sale. As the communication only goes from the POS to the proxy,
     // methods are used both to signal an event, and to fetch information. 
 
-    module.ProxyDevice  = instance.web.Class.extend({
-        init: function(options){
+    module.ProxyDevice  = instance.web.Class.extend(openerp.PropertiesMixin,{
+        init: function(parent,options){
+            openerp.PropertiesMixin.init.call(this,parent);
+            var self = this;
             options = options || {};
             url = options.url || 'http://localhost:8069';
+
+            this.pos = parent;
             
-            this.weight = 0;
             this.weighting = false;
             this.debug_weight = 0;
             this.use_debug_weight = false;
@@ -25,26 +106,255 @@ function openerp_pos_devices(instance,module){ //module is instance.point_of_sal
             };    
             this.custom_payment_status = this.default_payment_status;
 
-            this.connection = new instance.web.JsonRPC();
-            this.connection.setup(url);
+            this.receipt_queue = [];
 
-            this.bypass_proxy = false;
             this.notifications = {};
-            
+            this.bypass_proxy = false;
+
+            this.connection = null; 
+            this.host       = '';
+            this.keptalive  = false;
+
+            this.set('status',{});
+
+            this.set_connection_status('disconnected');
+
+            this.on('change:status',this,function(eh,status){
+                status = status.newValue;
+                if(status.status === 'connected'){
+                    self.print_receipt();
+                }
+            });
+
+            window.hw_proxy = this;
         },
+        set_connection_status: function(status,drivers){
+            oldstatus = this.get('status');
+            newstatus = {};
+            newstatus.status = status;
+            newstatus.drivers = status === 'disconnected' ? {} : oldstatus.drivers;
+            newstatus.drivers = drivers ? drivers : newstatus.drivers;
+            this.set('status',newstatus);
+        },
+        disconnect: function(){
+            if(this.get('status').status !== 'disconnected'){
+                this.connection.destroy();
+                this.set_connection_status('disconnected');
+            }
+        },
+
+        // connects to the specified url
+        connect: function(url){
+            var self = this;
+            this.connection = new instance.web.Session(undefined,url, { use_cors: true});
+            this.host   = url;
+            this.set_connection_status('connecting',{});
+
+            return this.message('handshake').then(function(response){
+                    if(response){
+                        self.set_connection_status('connected');
+                        localStorage['hw_proxy_url'] = url;
+                        self.keepalive();
+                    }else{
+                        self.set_connection_status('disconnected');
+                        console.error('Connection refused by the Proxy');
+                    }
+                },function(){
+                    self.set_connection_status('disconnected');
+                    console.error('Could not connect to the Proxy');
+                });
+        },
+
+        // find a proxy and connects to it. for options see find_proxy
+        //   - force_ip : only try to connect to the specified ip. 
+        //   - port: what port to listen to (default 8069)
+        //   - progress(fac) : callback for search progress ( fac in [0,1] ) 
+        autoconnect: function(options){
+            var self = this;
+            this.set_connection_status('connecting',{});
+            var found_url = new $.Deferred();
+            var success = new $.Deferred();
+
+            if ( options.force_ip ){
+                // if the ip is forced by server config, bailout on fail
+                found_url = this.try_hard_to_connect(options.force_ip, options)
+            }else if( localStorage['hw_proxy_url'] ){
+                // try harder when we remember a good proxy url
+                found_url = this.try_hard_to_connect(localStorage['hw_proxy_url'], options)
+                    .then(null,function(){
+                        return self.find_proxy(options);
+                    });
+            }else{
+                // just find something quick
+                found_url = this.find_proxy(options);
+            }
+
+            success = found_url.then(function(url){
+                    return self.connect(url);
+                });
+
+            success.fail(function(){
+                self.set_connection_status('disconnected');
+            });
+
+            return success;
+        },
+
+        // starts a loop that updates the connection status
+        keepalive: function(){
+            var self = this;
+            if(!this.keptalive){
+                this.keptalive = true;
+                function status(){
+                    self.connection.rpc('/hw_proxy/status_json',{},{timeout:2500})       
+                        .then(function(driver_status){
+                            self.set_connection_status('connected',driver_status);
+                        },function(){
+                            if(self.get('status').status !== 'connecting'){
+                                self.set_connection_status('disconnected');
+                            }
+                        }).always(function(){
+                            setTimeout(status,5000);
+                        });
+                }
+                status();
+            };
+        },
+
         message : function(name,params){
-            var ret = new $.Deferred();
             var callbacks = this.notifications[name] || [];
             for(var i = 0; i < callbacks.length; i++){
                 callbacks[i](params);
             }
+            if(this.get('status').status !== 'disconnected'){
+                return this.connection.rpc('/hw_proxy/' + name, params || {});       
+            }else{
+                return (new $.Deferred()).reject();
+            }
+        },
 
-            this.connection.rpc('/pos/' + name, params || {}).done(function(result) {
-                ret.resolve(result);
-            }).fail(function(error) {
-                ret.reject(error);
+        // try several time to connect to a known proxy url
+        try_hard_to_connect: function(url,options){
+            options   = options || {};
+            var port  = ':' + (options.port || '8069');
+
+            this.set_connection_status('connecting');
+
+            if(url.indexOf('//') < 0){
+                url = 'http://'+url;
+            }
+
+            if(url.indexOf(':',5) < 0){
+                url = url+port;
+            }
+
+            // try real hard to connect to url, with a 1sec timeout and up to 'retries' retries
+            function try_real_hard_to_connect(url, retries, done){
+
+                done = done || new $.Deferred();
+
+                var c = $.ajax({
+                    url: url + '/hw_proxy/hello',
+                    method: 'GET',
+                    timeout: 1000,
+                })
+                .done(function(){
+                    done.resolve(url);
+                })
+                .fail(function(){
+                    if(retries > 0){
+                        try_real_hard_to_connect(url,retries-1,done);
+                    }else{
+                        done.reject();
+                    }
+                });
+                return done;
+            }
+
+            return try_real_hard_to_connect(url,3);
+        },
+
+        // returns as a deferred a valid host url that can be used as proxy.
+        // options:
+        //   - port: what port to listen to (default 8069)
+        //   - progress(fac) : callback for search progress ( fac in [0,1] ) 
+        find_proxy: function(options){
+            options = options || {};
+            var self  = this;
+            var port  = ':' + (options.port || '8069');
+            var urls  = [];
+            var found = false;
+            var parallel = 8;
+            var done = new $.Deferred(); // will be resolved with the proxies valid urls
+            var threads  = [];
+            var progress = 0;
+
+
+            urls.push('http://localhost'+port);
+            for(var i = 0; i < 256; i++){
+                urls.push('http://192.168.0.'+i+port);
+                urls.push('http://192.168.1.'+i+port);
+                urls.push('http://10.0.0.'+i+port);
+            }
+
+            var prog_inc = 1/urls.length; 
+
+            function update_progress(){
+                progress = found ? 1 : progress + prog_inc;
+                if(options.progress){
+                    options.progress(progress);
+                }
+            }
+
+            function thread(done){
+                var url = urls.shift();
+
+                done = done || new $.Deferred();
+
+                if( !url || found || !self.searching_for_proxy ){ 
+                    done.resolve();
+                    return done;
+                }
+
+                var c = $.ajax({
+                        url: url + '/hw_proxy/hello',
+                        method: 'GET',
+                        timeout: 400, 
+                    }).done(function(){
+                        found = true;
+                        update_progress();
+                        done.resolve(url);
+                    })
+                    .fail(function(){
+                        update_progress();
+                        thread(done);
+                    });
+
+                return done;
+            }
+
+            this.searching_for_proxy = true;
+
+            for(var i = 0, len = Math.min(parallel,urls.length); i < len; i++){
+                threads.push(thread());
+            }
+            
+            $.when.apply($,threads).then(function(){
+                var urls = [];
+                for(var i = 0; i < arguments.length; i++){
+                    if(arguments[i]){
+                        urls.push(arguments[i]);
+                    }
+                }
+                done.resolve(urls[0]);
             });
-            return ret;
+
+            return done;
+        },
+
+        stop_searching: function(){
+            this.searching_for_proxy = false;
+            this.set_connection_status('disconnected');
         },
 
         // this allows the client to be notified when a proxy call is made. The notification 
@@ -56,67 +366,19 @@ function openerp_pos_devices(instance,module){ //module is instance.point_of_sal
             this.notifications[name].push(callback);
         },
         
-        //a product has been scanned and recognized with success
-        // ean is a parsed ean object
-        scan_item_success: function(ean){
-            return this.message('scan_item_success',{ean: ean});
-        },
-
-        // a product has been scanned but not recognized
-        // ean is a parsed ean object
-        scan_item_error_unrecognized: function(ean){
-            return this.message('scan_item_error_unrecognized',{ean: ean});
-        },
-
-        //a product has been entered by keypad and recognized with success
-        // data is a parsed {product.code,qty,price} object
-        keypad_item_success: function(data){
-            return this.message('keypad_item_success',{data: data});
-        },
-
-        // a product has been entered by keypad but not recognized
-        // data is a parsed {product.code,qty,price} object
-        keypad_item_error_unrecognized: function(data){
-            return this.message('keypad_item_error_unrecognized',{data: data});
-        },
-        
-        //the client is asking for help
-        help_needed: function(){
-            return this.message('help_needed');
-        },
-
-        //the client does not need help anymore
-        help_canceled: function(){
-            return this.message('help_canceled');
-        },
-
-        //the client is starting to weight
-        weighting_start: function(){
-            if(!this.weighting){
-                this.weighting = true;
-                if(!this.bypass_proxy){
-                    this.weight = 0;
-                    return this.message('weighting_start');
-                }
-            }
-        },
-
-        //returns the weight on the scale. 
-        // is called at regular interval (up to 10x/sec) between a weighting_start()
-        // and a weighting_end()
-        weighting_read_kg: function(){
+        // returns the weight on the scale. 
+        scale_read: function(){
             var self = this;
-            this.message('weighting_read_kg',{})
-                .done(function(weight){
-                    if(self.weighting){
-                        if(self.use_debug_weight){
-                            self.weight = self.debug_weight;
-                        }else{
-                            self.weight = weight;
-                        }
-                    }
+            var ret = new $.Deferred();
+            console.log('scale_read');
+            this.message('scale_read',{})
+                .then(function(weight){
+                    console.log(weight)
+                    ret.resolve(self.use_debug_weight ? self.debug_weight : weight);
+                }, function(){ //failed to read weight
+                    ret.resolve(self.use_debug_weight ? self.debug_weight : {weight:0.0, unit:'Kg', info:'ok'});
                 });
-            return this.weight;
+            return ret;
         },
 
         // sets a custom weight, ignoring the proxy returned value. 
@@ -131,128 +393,46 @@ function openerp_pos_devices(instance,module){ //module is instance.point_of_sal
             this.debug_weight = 0;
         },
 
-        // the client has finished weighting products
-        weighting_end: function(){
-            this.weight = 0;
-            this.weighting = false;
-            this.message('weighting_end');
-        },
-
-        // the pos asks the client to pay 'price' units
-        payment_request: function(price){
-            var ret = new $.Deferred();
-            this.paying = true;
-            this.custom_payment_status = this.default_payment_status;
-            return this.message('payment_request',{'price':price});
-        },
-
-        payment_status: function(){
-            if(this.bypass_proxy){
-                this.bypass_proxy = false;
-                return (new $.Deferred()).resolve(this.custom_payment_status);
-            }else{
-                return this.message('payment_status');
-            }
-        },
-        
-        // override what the proxy says and accept the payment
-        debug_accept_payment: function(){
-            this.bypass_proxy = true;
-            this.custom_payment_status = {
-                status: 'paid',
-                message: 'Successfull Payment, have a nice day',
-                payment_method: 'AMEX',
-                receipt_client: '<xml>bla</xml>',
-                receipt_shop:   '<xml>bla</xml>',
-            };    
-        },
-
-        // override what the proxy says and reject the payment
-        debug_reject_payment: function(){
-            this.bypass_proxy = true;
-            this.custom_payment_status = {
-                status: 'error-rejected',
-                message: 'Sorry you don\'t have enough money :(',
-            };    
-        },
-        // the client cancels his payment
-        payment_cancel: function(){
-            this.paying = false;
-            this.custom_payment_status = 'waiting_for_payment';
-            return this.message('payment_cancel');
-        },
-
-        // called when the client logs in or starts to scan product
-        transaction_start: function(){
-            return this.message('transaction_start');
-        },
-
-        // called when the clients has finished his interaction with the machine
-        transaction_end: function(){
-            return this.message('transaction_end');
-        },
-
-        // called when the POS turns to cashier mode
-        cashier_mode_activated: function(){
-            return this.message('cashier_mode_activated');
-        },
-
-        // called when the POS turns to client mode
-        cashier_mode_deactivated: function(){
-            return this.message('cashier_mode_deactivated');
-        },
-        
         // ask for the cashbox (the physical box where you store the cash) to be opened
         open_cashbox: function(){
             return this.message('open_cashbox');
         },
 
-        /* ask the printer to print a receipt
-         * receipt is a JSON object with the following specs:
-         * receipt{
-         *  - orderlines : list of orderlines :
-         *     {
-         *          quantity:           (number) the number of items, or the weight, 
-         *          unit_name:          (string) the name of the item's unit (kg, dozen, ...)
-         *          price:              (number) the price of one unit of the item before discount
-         *          discount:           (number) the discount on the product in % [0,100] 
-         *          product_name:       (string) the name of the product
-         *          price_with_tax:     (number) the price paid for this orderline, tax included
-         *          price_without_tax:  (number) the price paid for this orderline, without taxes
-         *          tax:                (number) the price paid in taxes on this orderline
-         *          product_description:         (string) generic description of the product
-         *          product_description_sale:    (string) sales related information of the product
-         *     }
-         *  - paymentlines : list of paymentlines :
-         *     {
-         *          amount:             (number) the amount paid
-         *          journal:            (string) the name of the journal on wich the payment has been made  
-         *     }
-         *  - total_with_tax:     (number) the total of the receipt tax included
-         *  - total_without_tax:  (number) the total of the receipt without taxes
-         *  - total_tax:          (number) the total amount of taxes paid
-         *  - total_paid:         (number) the total sum paid by the client
-         *  - change:             (number) the amount of change given back to the client
-         *  - name:               (string) a unique name for this order
-         *  - client:             (string) name of the client. or null if no client is logged
-         *  - cashier:            (string) the name of the cashier
-         *  - date: {             the date at wich the payment has been done
-         *      year:             (number) the year  [2012, ...]
-         *      month:            (number) the month [0,11]
-         *      date:             (number) the day of the month [1,31]
-         *      day:              (number) the day of the week  [0,6] 
-         *      hour:             (number) the hour [0,23]
-         *      minute:           (number) the minute [0,59]
-         *    }
+        /* 
+         * ask the printer to print a receipt
          */
         print_receipt: function(receipt){
-            return this.message('print_receipt',{receipt: receipt});
+            var self = this;
+            if(receipt){
+                this.receipt_queue.push(receipt);
+            }
+            var aborted = false;
+            function send_printing_job(){
+                if (self.receipt_queue.length > 0){
+                    var r = self.receipt_queue.shift();
+                    self.message('print_xml_receipt',{ receipt: r },{ timeout: 5000 })
+                        .then(function(){
+                            send_printing_job();
+                        },function(error){
+                            if (error) {
+                                self.pos.pos_widget.screen_selector.show_popup('error',{
+                                    'message': _t('PosBox Printing Error'),
+                                    'comment': _t("The receipt could not be printed. The software installed on the posbox is probably out of date. Please refer to the software instructions in the posbox manual or contact the customer support"),
+                                });
+                                return;
+                            }
+                            self.receipt_queue.unshift(r)
+                        });
+                }
+            }
+            send_printing_job();
         },
 
-        // asks the proxy to print an invoice in pdf form ( used to print invoices generated by the server ) 
-        print_pdf_invoice: function(pdfinvoice){
-            return this.message('print_pdf_invoice',{pdfinvoice: pdfinvoice});
+        // asks the proxy to log some information, as with the debug.log you can provide several arguments.
+        log: function(){
+            return this.message('log',{'arguments': _.toArray(arguments)});
         },
+
     });
 
     // this module interfaces with the barcode reader. It assumes the barcode reader
@@ -264,19 +444,68 @@ function openerp_pos_devices(instance,module){ //module is instance.point_of_sal
             'product',
             'cashier',
             'client',
-            'discount',
         ],
+
         init: function(attributes){
             this.pos = attributes.pos;
             this.action_callback = {};
+            this.proxy = attributes.proxy;
+            this.remote_scanning = false;
+            this.remote_active = 0;
 
             this.action_callback_stack = [];
 
-            this.weight_prefix_set   = attributes.weight_prefix_set   ||  {'21':''};
-            this.discount_prefix_set = attributes.discount_prefix_set ||  {'22':''};
-            this.price_prefix_set    = attributes.price_prefix_set    ||  {'23':''};
-            this.cashier_prefix_set  = attributes.cashier_prefix_set  ||  {'041':''};
-            this.client_prefix_set   = attributes.client_prefix_set   ||  {'042':''};
+            this.add_barcode_patterns(attributes.patterns || {
+                'product':  ['xxxxxxxxxxxxx'],
+                'cashier':  ['041xxxxxxxxxx'],
+                'client':   ['042xxxxxxxxxx'],
+                'weight':   ['21xxxxxNNDDDx'],
+                'discount': ['22xxxxxxxxNNx'],
+                'price':    ['23xxxxxNNNDDx'],
+            });
+
+        },
+
+        add_barcode_patterns: function(patterns){
+            this.patterns = this.patterns || {};
+            for(type in patterns){
+                this.patterns[type] = this.patterns[type] || [];
+
+                var patternlist = patterns[type];
+                if( typeof patternlist === 'string'){
+                    patternlist = patternlist.split(',');
+                }
+                for(var i = 0; i < patternlist.length; i++){
+                    var pattern = patternlist[i].trim().substring(0,12);
+                    if(!pattern.length){
+                        continue;
+                    }
+                    pattern = pattern.replace(/[x\*]/gi,'x');
+                    while(pattern.length < 12){
+                        pattern += 'x';
+                    }
+                    this.patterns[type].push(pattern);
+                }
+            }
+
+            this.sorted_patterns = [];
+            for (var type in this.patterns){
+                var patterns = this.patterns[type];
+                for(var i = 0; i < patterns.length; i++){
+                    var pattern = patterns[i];
+                    var score = 0;
+                    for(var j = 0; j < pattern.length; j++){
+                        if(pattern[j] != 'x'){
+                            score++;
+                        }
+                    }
+                    this.sorted_patterns.push({type:type, pattern:pattern,score:score});
+                }
+            }
+            this.sorted_patterns.sort(function(a,b){
+                return b.score - a.score;
+            });
+
         },
 
         save_callbacks: function(){
@@ -343,7 +572,7 @@ function openerp_pos_devices(instance,module){ //module is instance.point_of_sal
         // returns true if the ean is a valid EAN codebar number by checking the control digit.
         // ean must be a string
         check_ean: function(ean){
-            return this.ean_checksum(ean) === Number(ean[ean.length-1]);
+            return /^\d+$/.test(ean) && this.ean_checksum(ean) === Number(ean[ean.length-1]);
         },
         // returns a valid zero padded ean13 from an ean prefix. the ean prefix must be a string.
         sanitize_ean:function(ean){
@@ -359,79 +588,117 @@ function openerp_pos_devices(instance,module){ //module is instance.point_of_sal
         // it will check its validity then return an object containing various
         // information about the ean.
         // most importantly : 
-        // - ean    : the ean
+        // - code    : the ean
         // - type   : the type of the ean: 
-        //      'price' |  'weight' | 'unit' | 'cashier' | 'client' | 'discount' | 'error'
+        //      'price' |  'weight' | 'product' | 'cashier' | 'client' | 'discount' | 'error'
         //
-        // - prefix : the prefix that has ben used to determine the type
-        // - id     : the part of the ean that identifies something
         // - value  : if the id encodes a numerical value, it will be put there
-        // - unit   : if the encoded value has a unit, it will be put there. 
-        //            not to be confused with the 'unit' type, which represent an unit of a 
-        //            unique product
+        // - base_code : the ean code with all the encoding parts set to zero; the one put on
+        //               the product in the backend
 
         parse_ean: function(ean){
+            var self = this;
             var parse_result = {
-                type:'unknown', // 
-                prefix:'',
-                ean:ean,
-                base_ean: ean,
-                id:'',
+                encoding: 'ean13',
+                type:'error',  
+                code:ean,
+                base_code: ean,
                 value: 0,
-                unit: 'none',
             };
 
-            function match_prefix(prefix_set, type){
-                for(prefix in prefix_set){
-                    if(ean.substring(0,prefix.length) === prefix){
-                        parse_result.prefix = prefix;
-                        parse_result.type = type;
-                        return true;
+            if (!this.check_ean(ean)){
+                return parse_result;
+            }
+
+            function is_number(char){
+                n = char.charCodeAt(0);
+                return n >= 48 && n <= 57;
+            }
+
+            function match_pattern(ean,pattern){
+                for(var i = 0; i < pattern.length; i++){
+                    var p = pattern[i];
+                    var e = ean[i];
+                    if( is_number(p) && p !== e ){
+                        return false;
                     }
                 }
-                return false;
+                return true;
+            }
+            
+            function get_value(ean,pattern){
+                var value = 0;
+                var decimals = 0;
+                for(var i = 0; i < pattern.length; i++){
+                    var p = pattern[i];
+                    var v = parseInt(ean[i]);
+                    if( p === 'N'){
+                        value *= 10;
+                        value += v;
+                    }else if( p === 'D'){
+                        decimals += 1;
+                        value += v * Math.pow(10,-decimals);
+                    }
+                }
+                return value;
             }
 
-            if (!this.check_ean(ean)){
-                parse_result.type = 'error';
-            } else if( match_prefix(this.price_prefix_set,'price')){
-                parse_result.id = ean.substring(0,7);
-                parse_result.base_ean = this.sanitize_ean(ean.substring(0,7));
-                parse_result.value = Number(ean.substring(7,12))/100.0;
-                parse_result.unit  = 'euro';
-            } else if( match_prefix(this.weight_prefix_set,'weight')){
-                parse_result.id = ean.substring(0,7);
-                parse_result.value = Number(ean.substring(7,12))/1000.0;
-                parse_result.base_ean = this.sanitize_ean(ean.substring(0,7));
-                parse_result.unit = 'Kg';
-            } else if( match_prefix(this.client_prefix_set,'client')){
-                parse_result.id = ean.substring(0,7);
-                parse_result.unit = 'Kg';
-            } else if( match_prefix(this.cashier_prefix_set,'cashier')){
-                parse_result.id = ean.substring(0,7);
-            } else if( match_prefix(this.discount_prefix_set,'discount')){
-                parse_result.id    = ean.substring(0,7);
-                parse_result.base_ean = this.sanitize_ean(ean.substring(0,7));
-                parse_result.value = Number(ean.substring(7,12))/100.0;
-                parse_result.unit  = '%';
-            } else {
-                parse_result.type = 'unit';
-                parse_result.prefix = '';
-                parse_result.id = ean;
+            function get_basecode(ean,pattern){
+                var base = '';
+                for(var i = 0; i < pattern.length; i++){
+                    var p = pattern[i];
+                    var v = ean[i];
+                    if( p === 'x'  || is_number(p)){
+                        base += v;
+                    }else{
+                        base += '0';
+                    }
+                }
+                return self.sanitize_ean(base);
             }
+
+            var patterns = this.sorted_patterns;
+
+            for(var i = 0; i < patterns.length; i++){
+                if(match_pattern(ean,patterns[i].pattern)){
+                    parse_result.type  = patterns[i].type;
+                    parse_result.value = get_value(ean,patterns[i].pattern);
+                    parse_result.base_code = get_basecode(ean,patterns[i].pattern);
+                    return parse_result;
+                }
+            }
+
             return parse_result;
         },
+        
+        scan: function(code){
+            if(code.length < 3){
+                return;
+            }else if(code.length === 13 && this.check_ean(code)){
+                var parse_result = this.parse_ean(code);
+            }else if(code.length === 12 && this.check_ean('0'+code)){
+                // many barcode scanners strip the leading zero of ean13 barcodes.
+                // This is because ean-13 are UCP-A with an additional zero at the beginning,
+                // so by stripping zeros you get retrocompatibility with UCP-A systems.
+                var parse_result = this.parse_ean('0'+code);
+            }else if(this.pos.db.get_product_by_reference(code)){
+                var parse_result = {
+                    encoding: 'reference',
+                    type: 'product',
+                    code: code,
+                };
+            }else{
+                var parse_result = {
+                    encoding: 'error',
+                    type: 'error',
+                    code: code,
+                };
+            }
 
-        on_ean: function(ean){
-            var parse_result = this.parse_ean(ean);
-
-            if (parse_result.type === 'error') {    //most likely a checksum error, raise warning
-                console.warn('WARNING: barcode checksum error:',parse_result);
-            }else if(parse_result.type in {'unit':'', 'weight':'', 'price':''}){    //ean is associated to a product
+            if(parse_result.type in {'product':'', 'weight':'', 'price':'', 'discount':''}){    //ean is associated to a product
                 if(this.action_callback['product']){
                     this.action_callback['product'](parse_result);
                 }
-                //this.trigger("codebar",parse_result );
             }else{
                 if(this.action_callback[parse_result.type]){
                     this.action_callback[parse_result.type](parse_result);
@@ -442,256 +709,87 @@ function openerp_pos_devices(instance,module){ //module is instance.point_of_sal
         // starts catching keyboard events and tries to interpret codebar 
         // calling the callbacks when needed.
         connect: function(){
+
             var self = this;
-            var codeNumbers = [];
-            var timeStamp = 0;
-            var lastTimeStamp = 0;
+            var code = "";
+            var timeStamp  = 0;
+            var onlynumbers = true;
+            var timeout = null;
 
-            // The barcode readers acts as a keyboard, we catch all keyup events and try to find a 
-            // barcode sequence in the typed keys, then act accordingly.
-            $('body').delegate('','keyup', function (e){
-                //console.log('keyup:'+String.fromCharCode(e.keyCode)+' '+e.keyCode,e);
-                //We only care about numbers
-                if (e.keyCode >= 48 && e.keyCode < 58){
+            this.handler = function(e){
 
-                    // The barcode reader sends keystrokes with a specific interval.
-                    // We look if the typed keys fit in the interval. 
-                    if (codeNumbers.length === 0) {
-                        timeStamp = new Date().getTime();
-                    } else {
-                        if (lastTimeStamp + 30 < new Date().getTime()) {
-                            // not a barcode reader
-                            codeNumbers = [];
-                            timeStamp = new Date().getTime();
-                        }
-                    }
-                    codeNumbers.push(e.keyCode - 48);
-                    lastTimeStamp = new Date().getTime();
-                    if (codeNumbers.length === 13) {
-                        //We have found what seems to be a valid codebar
-                        self.on_ean(codeNumbers.join(''));
-                        codeNumbers = [];
-                    }
-                } else {
-                    // NaN
-                    codeNumbers = [];
-                }
-            });
-        },
-
-        // stops catching keyboard events 
-        disconnect: function(){
-            $('body').undelegate('', 'keyup');
-        },
-    });
-    
-    // this module mimics a keypad-only cash register. Use connect() and 
-    // disconnect() to activate and deactivate it. Use set_action_callback to
-    // tell it what to do when the cashier enters product data(qty, price, etc).
-    // TODO: Implement this using one of this project:
-    //  - https://github.com/madrobby/keymaster/
-    module.Keypad = instance.web.Class.extend({
-        init: function(attributes){
-            this.pos = attributes.pos;
-            this.action_callback = undefined;
-            this.saved_callback_stack = [];
-        },
-
-        save_callback: function(){
-            this.saved_callback_stack.push(this.action_callback);
-        },
-
-        restore_callback: function(){
-            if (this.saved_callback_stack.length > 0) {
-                this.action_callback = this.saved_callback_stack.pop();
-            }
-        },
-
-        set_action_callback: function(callback){
-            this.action_callback = callback;
-        },
-
-        //remove action callback
-        reset_action_callback: function(){
-            this.action_callback = undefined;
-        },
-        
-        reset_parse_result: function(parse_result) {
-            parse_result.code = 0;
-            parse_result.qty = 0;
-            parse_result.priceOverride = false;
-            parse_result.price = 0.00;
-            parse_result.discount = 0.00;
-            parse_result.void_last_line = false;
-        },
-        
-        copy_parse_result: function(src) {
-            var dst = {
-                code:          null,
-                qty:           1,
-                priceOverride: false,
-                price:         0.00,
-                discount:      0.00,
-                void_last_line: false,
-            };
-            dst.code = src.code;
-            dst.qty = src.qty;
-            dst.priceOverride = src.priceOverride;
-            dst.price = src.price;
-            dst.discount = src.discount;
-            dst.void_last_line = src.void_last_line;
-            return dst;
-        },
-
-        // starts catching keyboard events and tries to interpret keystrokes, 
-        // calling the callback when needed.
-        connect: function() {
-            var self = this,
-                KC_PLU = 107,      // KeyCode: Product Code (Keypad '+')
-                KC_QTY = 111,      // KeyCode: Quantity (Keypad '/')
-                KC_AMT = 106,      // KeyCode: Price (Keypad '*')
-                KC_DISC = 109,     // KeyCode: Discount Percentage [0..100] (Keypad '-')
-                KC_VOID = 13,      // KeyCode: Void current line (Keyboard/Keypad Enter key)
-                KC_CLR1 = 46,      // KeyCode: Clear last line of order (Keyboard Delete key)
-                KC_CLR2 = 8,       // KeyCode: Clear current line (Keyboard Backspace key)
-                KC_ESC = 27,       // KeyCode: Back to default mode focus on searchbox (Keyboard Escape key)
-                codeNumbers = [],
-                codeChars = [],
-                parse_result = {
-                    code:          null,
-                    qty:           1,
-                    priceOverride: false,
-                    price:         0.00,
-                    discount:      0.00,
-                    void_last_line: false,
-                },
-                kc_lookup = {
-                    96: '0',
-                    97: '1',
-                    98: '2',
-                    99: '3',
-                    100: '4',
-                    101: '5',
-                    102: '6',
-                    103: '7',
-                    104: '8',
-                    105: '9',
-                    106: '*',
-                    107: '+',
-                    109: '-',
-                    110: '.',
-                    111: '/',
-                },
-                kc_functions = {
-                    112: '0',   //F1
-                    113: '1',   //F2
-                    114: '2',   //F3
-                    115: '3',   //F4
-                    116: '4',   //F5
-                    117: '5',   //F6
-                    118: '6',   //F7
-                    119: '7',   //F8
-                    120: '8',   //F9
-                    121: '9',   //F10
-                    122: '10',   //F11
-                    123: '11',   //F12
-                };
-            
-            // Catch keydown events anywhere in the POS interface for prevent backspace default
-            $('body').delegate('','keydown', function (e){
-                prevent = false;
-                // Prevent some default behaviors work on browsers for make 
-                // better interface interaction with PoS
-                if ((e.which === 8 && !$(e.target).is("input, textarea")) ||
-                    (e.keyCode === 116 || (e.altKey && e.keyCode === 115)) ||
-                    (e.which >= 112 && e.which <= 123) ) {
-                    prevent = true;
-                }
-                
-                if (e.ctrlKey && e.keyCode === 70) {
-                    // Set focus on search box
-                    document.getElementById("searchbox").focus();
-                    prevent = true;
-                }
-                if (prevent) {
+                if(e.which === 13){ //ignore returns
                     e.preventDefault();
+                    return;
                 }
-            });
 
-            // Catch keyup events anywhere in the POS interface.  Barcode reader also does this, but won't interfere
-            // because it looks for a specific timing between keyup events. On the plus side this should mean that you
-            // can use both the keypad and the barcode reader during the same session (but for separate order lines).
-            // This could be useful in cases where the scanner can't read the barcode.
-            $('body').delegate('','keyup', function (e){
-                // On first section we only care about numbers and modifiers
-                token = e.keyCode;                
-                if ((token >= 96 && token <= 111) || token === KC_PLU || token === KC_QTY || token === KC_AMT) {
-                    if (token === KC_PLU) {
-                        parse_result.code = codeChars.join('');
-                        var res = self.copy_parse_result(parse_result);
-                        codeNumbers = [];
-                        codeChars = [];
-                        self.reset_parse_result(parse_result);
-                        self.action_callback(res);
-                    } else if (token === KC_QTY) {
-                        parse_result.qty = parseInt(codeChars.join(''));
-                        codeNumbers = [];
-                        codeChars = [];
-                    } else if (token === KC_AMT) {
-                        parse_result.price = parseFloat(codeChars.join('')).toFixed(2);
-                        parse_result.priceOverride = true;
-                        codeNumbers = [];
-                        codeChars = [];
-                    } else if (token === KC_DISC) {
-                        parse_result.discount = parseFloat(codeChars.join(''));
-                        codeNumbers = [];
-                        codeChars = [];
-                    } else {
-                        codeNumbers.push(token - 48);
-                        codeChars.push(kc_lookup[token]);
-                    }
-                } else if (token >= 112 && token <= 123) {
-                    /*
-                     * Process function keys so we can set payment method based on them
-                     */
-                    var res = {};
-                    codeNumbers = [];
-                    codeChars = [];
-                    self.reset_parse_result(parse_result);
-                    res.kc_functions = kc_functions[token];
-                    self.action_callback(res);
-                } else if (token === KC_VOID) {
-                    /*
-                     * TODO: Is this true???
-                     * This is commented out for now. We don't want to interfere with
-                     * the 'Enter' keycode used by the barcode reader to signify a scan.
-                     * 
-                     */
-                    // Send signal to action_callback function to process the enter
-                    // according to the currently active screen
-                    parse_result.void_last_line = true;
-                    var res = self.copy_parse_result(parse_result);
-                    codeNumbers = [];
-                    codeChars = [];
-                    self.reset_parse_result(parse_result);
-                    self.action_callback(res);
-                } else {
-                    // For now pressing Backspace or Delete just defaults to doing nothing.
-                    // In the future we might want it to display a popup or something.
-                    if (token === KC_CLR1 || token === KC_CLR2) {
-                        ;
-                    }
-                    codeNumbers = [];
-                    codeChars = [];
-                    self.reset_parse_result(parse_result);
+                if(timeStamp + 50 < new Date().getTime()){
+                    code = "";
+                    onlynumbers = true;
                 }
-            });
+
+                timeStamp = new Date().getTime();
+                clearTimeout(timeout);
+
+                if( e.which < 48 || e.which >= 58 ){ // not a number
+                    onlynumbers = false;
+                }
+
+                code += String.fromCharCode(e.which);
+
+                // we wait for a while after the last input to be sure that we are not mistakingly
+                // returning a code which is a prefix of a bigger one :
+                // Internal Ref 5449 vs EAN13 5449000...
+
+                timeout = setTimeout(function(){
+                    self.scan(code);
+                    code = "";
+                    onlynumbers = true;
+                },100);
+            };
+
+            $('body').on('keypress', this.handler);
         },
 
         // stops catching keyboard events 
         disconnect: function(){
-            $('body').undelegate('', 'keyup');
-            $('body').undelegate('', 'keydown');
+            $('body').off('keypress', this.handler)
+        },
+
+        // the barcode scanner will listen on the hw_proxy/scanner interface for 
+        // scan events until disconnect_from_proxy is called
+        connect_to_proxy: function(){ 
+            var self = this;
+            this.remote_scanning = true;
+            if(this.remote_active >= 1){
+                return;
+            }
+            this.remote_active = 1;
+
+            function waitforbarcode(){
+                return self.proxy.connection.rpc('/hw_proxy/scanner',{},{timeout:7500})
+                    .then(function(barcode){
+                        if(!self.remote_scanning){ 
+                            self.remote_active = 0;
+                            return; 
+                        }
+                        self.scan(barcode);
+                        waitforbarcode();
+                    },
+                    function(){
+                        if(!self.remote_scanning){
+                            self.remote_active = 0;
+                            return;
+                        }
+                        setTimeout(waitforbarcode,5000);
+                    });
+            }
+            waitforbarcode();
+        },
+
+        // the barcode scanner will stop listening on the hw_proxy/scanner remote interface
+        disconnect_from_proxy: function(){
+            this.remote_scanning = false;
         },
     });
 

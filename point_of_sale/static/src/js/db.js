@@ -1,36 +1,12 @@
 function openerp_pos_db(instance, module){ 
 
-    /* The db module was intended to be used to store all the data needed to run the Point
-     * of Sale in offline mode. (Products, Categories, Orders, ...) It would also use WebSQL 
-     * or IndexedDB to make the searching and sorting products faster. It turned out not to be 
-     * a so good idea after all. 
-     * 
-     * First it is difficult to make the Point of Sale truly independant of the server. A lot
-     * of functionality cannot realistically run offline, like generating invoices. 
-     *
-     * IndexedDB turned out to be complicated and slow as hell, and loading all the data at the
-     * start made the point of sale take forever to load over small connections. 
-     *
-     * LocalStorage has a hard 5.0MB on chrome. For those kind of sizes, it is just better 
-     * to put the data in memory and it's not too big to download each time you launch the PoS.
-     *
-     * So at this point we are dropping the support for offline mode, and this module doesn't really
-     * make sense anymore. But if at some point you want to store millions of products and if at
-     * that point indexedDB has improved to the point it is usable, you can just implement this API. 
-     *
-     * You would also need to change the way the models are loaded at the start to not reload all your
-     * product data. 
-     */ 
-
-    /* PosLS is a localstorage based implementation of the point of sale database.
-     * FIXME: The Products definitions and categories are stored on the locastorage even tough they're 
-     * always reloaded at launch. This could induce a slowdown because the data needs to be reparsed from
-     * JSON before each operation. If you have a huge amount of products (around 25000) it can also 
-     * blow the 5.0MB localstorage limit. 
+    /* The PosDB holds reference to data that is either
+     * - static: does not change between pos reloads
+     * - persistent : must stay between reloads ( orders )
      */
 
-    module.PosLS = instance.web.Class.extend({
-        name: 'openerp_pos_ls', //the prefix of the localstorage data
+    module.PosDB = instance.web.Class.extend({
+        name: 'openerp_pos_db', //the prefix of the localstorage data
         limit: 100,  // the maximum number of results returned by a search
         init: function(options){
             options = options || {};
@@ -42,8 +18,14 @@ function openerp_pos_db(instance, module){
 
             this.product_by_id = {};
             this.product_by_ean13 = {};
-            this.product_by_code = {};
             this.product_by_category_id = {};
+            this.product_by_reference = {};
+
+            this.partner_sorted = [];
+            this.partner_by_id = {};
+            this.partner_by_ean13 = {};
+            this.partner_search_string = "";
+            this.partner_write_date = null;
 
             this.category_by_id = {};
             this.root_category_id  = 0;
@@ -53,7 +35,7 @@ function openerp_pos_db(instance, module){
             this.category_parent    = {};
             this.category_search_string = {};
             this.packagings_by_id = {};
-            this.packagings_by_product_id = {};
+            this.packagings_by_product_tmpl_id = {};
             this.packagings_by_ean13 = {};
         },
         /* returns the category object from its id. If you pass a list of id as parameters, you get
@@ -132,7 +114,7 @@ function openerp_pos_db(instance, module){
                 return this.cache[store];
             }
             var data = localStorage[this.name + '_' + store];
-            if(data !== undefined){
+            if(data !== undefined && data !== ""){
                 data = JSON.parse(data);
                 this.cache[store] = data;
                 return data;
@@ -147,14 +129,14 @@ function openerp_pos_db(instance, module){
             this.cache[store] = data;
         },
         _product_search_string: function(product){
-            var str = '' + product.id + ':' + product.name;
+            var str = '' + product.id + ':' + product.display_name;
             if(product.ean13){
                 str += '|' + product.ean13;
             }
-            if(product.code){
-                str += '|' + product.code;
+            if(product.default_code){
+                str += '|' + product.default_code;
             }
-            var packagings = this.packagings_by_product_id[product.id] || [];
+            var packagings = this.packagings_by_product_tmpl_id[product.product_tmpl_id] || [];
             for(var i = 0; i < packagings.length; i++){
                 str += '|' + packagings[i].ean;
             }
@@ -170,6 +152,7 @@ function openerp_pos_db(instance, module){
                 var product = products[i];
                 var search_string = this._product_search_string(product);
                 var categ_id = product.pos_categ_id ? product.pos_categ_id[0] : this.root_category_id;
+                product.product_tmpl_id = product.product_tmpl_id[0];
                 if(!stored_categories[categ_id]){
                     stored_categories[categ_id] = [];
                 }
@@ -198,52 +181,129 @@ function openerp_pos_db(instance, module){
                 if(product.ean13){
                     this.product_by_ean13[product.ean13] = product;
                 }
-                if(product.code){
-                    this.product_by_code[product.code] = product;
-                }                
+                if(product.default_code){
+                    this.product_by_reference[product.default_code] = product;
+                }
             }
         },
         add_packagings: function(packagings){
             for(var i = 0, len = packagings.length; i < len; i++){
                 var pack = packagings[i];
                 this.packagings_by_id[pack.id] = pack;
-                if(!this.packagings_by_product_id[pack.product_id[0]]){
-                    this.packagings_by_product_id[pack.product_id[0]] = [];
+                if(!this.packagings_by_product_tmpl_id[pack.product_tmpl_id[0]]){
+                    this.packagings_by_product_tmpl_id[pack.product_tmpl_id[0]] = [];
                 }
-                this.packagings_by_product_id[pack.product_id[0]].push(pack);
+                this.packagings_by_product_tmpl_id[pack.product_tmpl_id[0]].push(pack);
                 if(pack.ean){
                     this.packagings_by_ean13[pack.ean] = pack;
                 }
             }
         },
-        _customer_search_string: function(customer){
-            var str = '' + customer.id + ':' + customer.name;
-            if(customer.vat){
-                str += '|' + customer.vat;
+        _partner_search_string: function(partner){
+            var str = '' + partner.id + ':' + partner.name;
+            if(partner.ean13){
+                str += '|' + partner.ean13;
             }
-            if(customer.email){
-                str += '|' + customer.email;
+            if(partner.address){
+                str += '|' + partner.address;
             }
-            if(customer.phone){
-                str += '|' + customer.phone;
+            if(partner.phone){
+                str += '|' + partner.phone.split(' ').join('');
             }
-            if(customer.contact_address){
-                str += '|' + customer.contact_address;
+            if(partner.mobile){
+                str += '|' + partner.mobile.split(' ').join('');
+            }
+            if(partner.email){
+                str += '|' + partner.email;
             }
             return str + '\n';
         },
-        add_customers: function(customers){
-            var stored_customers = this.load('customers',{}); 
+        add_partners: function(partners){
+            var updated_count = 0;
+            var new_write_date = '';
+            for(var i = 0, len = partners.length; i < len; i++){
+                var partner = partners[i];
 
-            if(!customers instanceof Array){
-                customers = [customers];
+                if (    this.partner_write_date && 
+                        this.partner_by_id[partner.id] &&
+                        new Date(this.partner_write_date).getTime() + 1000 >=
+                        new Date(partner.write_date).getTime() ) {
+                    // FIXME: The write_date is stored with milisec precision in the database
+                    // but the dates we get back are only precise to the second. This means when
+                    // you read partners modified strictly after time X, you get back partners that were
+                    // modified X - 1 sec ago. 
+                    continue;
+                } else if ( new_write_date < partner.write_date ) { 
+                    new_write_date  = partner.write_date;
+                }
+                if (!this.partner_by_id[partner.id]) {
+                    this.partner_sorted.push(partner.id);
+                }
+                this.partner_by_id[partner.id] = partner;
+
+                updated_count += 1;
             }
-            for(var i = 0, len = customers.length; i < len; i++){
-                var c = customers[i];
-                this.customer_list_search_strings += this._customer_search_string(c);
-                stored_customers[c.id] = c;
+
+            this.partner_write_date = new_write_date || this.partner_write_date;
+
+            if (updated_count) {
+                // If there were updates, we need to completely 
+                // rebuild the search string and the ean13 indexing
+
+                this.partner_search_string = "";
+                this.partner_by_ean13 = {};
+
+                for (var id in this.partner_by_id) {
+                    var partner = this.partner_by_id[id];
+
+                    if(partner.ean13){
+                        this.partner_by_ean13[partner.ean13] = partner;
+                    }
+                    partner.address = (partner.street || '') +', '+ 
+                                      (partner.zip || '')    +' '+
+                                      (partner.city || '')   +', '+ 
+                                      (partner.country_id[1] || '');
+                    this.partner_search_string += this._partner_search_string(partner);
+                }
             }
-            this.save('customers',stored_customers);
+            return updated_count;
+        },
+        get_partner_write_date: function(){
+            return this.partner_write_date;
+        },
+        get_partner_by_id: function(id){
+            return this.partner_by_id[id];
+        },
+        get_partner_by_ean13: function(ean13){
+            return this.partner_by_ean13[ean13];
+        },
+        get_partners_sorted: function(max_count){
+            max_count = max_count ? Math.min(this.partner_sorted.length, max_count) : this.partner_sorted.length;
+            var partners = [];
+            for (var i = 0; i < max_count; i++) {
+                partners.push(this.partner_by_id[this.partner_sorted[i]]);
+            }
+            return partners;
+        },
+        search_partner: function(query){
+            try {
+                query = query.replace(/[\[\]\(\)\+\*\?\.\-\!\&\^\$\|\~\_\{\}\:\,\\\/]/g,'.');
+                query = query.replace(' ','.+');
+                var re = RegExp("([0-9]+):.*?"+query,"gi");
+            }catch(e){
+                return [];
+            }
+            var results = [];
+            for(var i = 0; i < this.limit; i++){
+                r = re.exec(this.partner_search_string);
+                if(r){
+                    var id = Number(r[1]);
+                    results.push(this.get_partner_by_id(id));
+                }else{
+                    break;
+                }
+            }
+            return results;
         },
         /* removes all the data from the database. TODO : being able to selectively remove data */
         clear: function(stores){
@@ -274,8 +334,8 @@ function openerp_pos_db(instance, module){
             }
             return undefined;
         },
-        get_product_by_code: function(code){
-            return this.product_by_code[code];
+        get_product_by_reference: function(ref){
+            return this.product_by_reference[ref];
         },
         get_product_by_category: function(category_id){
             var product_ids  = this.product_by_category_id[category_id];
@@ -287,23 +347,18 @@ function openerp_pos_db(instance, module){
             }
             return list;
         },
-        get_customer_by_id: function(id){
-            return this.load('customers',{})[id];
-        },
-        get_all_customers: function(){
-            list = [];
-            stored_customers = this.load('customers',{});
-            for (var i in stored_customers) {
-                list.push(stored_customers[i]);
-            }
-            return list;
-        },
         /* returns a list of products with :
          * - a category that is or is a child of category_id,
          * - a name, package or ean13 containing the query (case insensitive) 
          */
         search_product_in_category: function(category_id, query){
-            var re = RegExp("([0-9]+):.*?"+query,"gi");
+            try {
+                query = query.replace(/[\[\]\(\)\+\*\?\.\-\!\&\^\$\|\~\_\{\}\:\,\\\/]/g,'.');
+                query = query.replace(' ','.+');
+                var re = RegExp("([0-9]+):.*?"+query,"gi");
+            }catch(e){
+                return [];
+            }
             var results = [];
             for(var i = 0; i < this.limit; i++){
                 r = re.exec(this.category_search_string[category_id]);
@@ -316,29 +371,22 @@ function openerp_pos_db(instance, module){
             }
             return results;
         },
-        /* returns a list of customers with :
-         * - a name, TIN, email, or phone/mobile containing the query (case insensitive) 
-         */
-        search_customers: function(query){
-            var re = RegExp("([0-9]+):.*?"+query,"gi");
-            var results = [];
-            for(var i = 0; i < this.limit; i++){
-                r = re.exec(this.customer_list_search_strings);
-                if(r){
-                    var id = Number(r[1]);
-                    results.push(this.get_customer_by_id(id));
-                }else{
-                    break;
+        add_order: function(order){
+            var order_id = order.uid;
+            var orders  = this.load('orders',[]);
+
+            // if the order was already stored, we overwrite its data
+            for(var i = 0, len = orders.length; i < len; i++){
+                if(orders[i].id === order_id){
+                    orders[i].data = order;
+                    this.save('orders',orders);
+                    return order_id;
                 }
             }
-            return results;
-        },
-        add_order: function(order){
-            var last_id = this.load('last_order_id',0);
-            var orders  = this.load('orders',[]);
-            orders.push({id: last_id + 1, data: order});
-            this.save('last_order_id',last_id+1);
+
+            orders.push({id: order_id, data: order});
             this.save('orders',orders);
+            return order_id;
         },
         remove_order: function(order_id){
             var orders = this.load('orders',[]);
@@ -347,8 +395,20 @@ function openerp_pos_db(instance, module){
             });
             this.save('orders',orders);
         },
+        remove_all_orders: function(){
+            this.save('orders',[]);
+        },
         get_orders: function(){
             return this.load('orders',[]);
+        },
+        get_order: function(order_id){
+            var orders = this.get_orders();
+            for(var i = 0, len = orders.length; i < len; i++){
+                if(orders[i].id === order_id){
+                    return orders[i];
+                }
+            }
+            return undefined;
         },
     });
 }

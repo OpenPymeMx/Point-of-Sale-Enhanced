@@ -1,8 +1,9 @@
 function openerp_pos_models(instance, module){ //module is instance.point_of_sale
-    var QWeb = instance.web.qweb,
+    var QWeb = instance.web.qweb;
+	var _t = instance.web._t;
 
-        round_di = instance.web.round_decimals,
-        round_pr = instance.web.round_precision;
+    var round_di = instance.web.round_decimals;
+    var round_pr = instance.web.round_precision
     
     // The PosModel contains the Point Of Sale's representation of the backend.
     // Since the PoS must work in standalone ( Without connection to the server ) 
@@ -19,240 +20,420 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
             Backbone.Model.prototype.initialize.call(this, attributes);
             var  self = this;
             this.session = session;                 
-            this.ready = $.Deferred();                          // used to notify the GUI that the PosModel has loaded all resources
             this.flush_mutex = new $.Mutex();                   // used to make sure the orders are sent to the server once at time
+            this.pos_widget = attributes.pos_widget;
 
-            this.barcode_reader = new module.BarcodeReader({'pos': this});  // used to read barcodes
-            this.keypad = new module.Keypad({'pos': this});     // used to simulate a cash register keypad
-            this.proxy = new module.ProxyDevice();              // used to communicate to the hardware devices via a local proxy
-            this.db = new module.PosLS();                       // a database used to store the products and categories
-            this.db.clear('products','categories','customers');
-            this.debug = jQuery.deparam(jQuery.param.querystring()).debug !== undefined;    //debug mode
+            this.proxy = new module.ProxyDevice(this);              // used to communicate to the hardware devices via a local proxy
+            this.barcode_reader = new module.BarcodeReader({'pos': this, proxy:this.proxy, patterns: {}});  // used to read barcodes
+            this.proxy_queue = new module.JobQueue();           // used to prevent parallels communications to the proxy
+            this.db = new module.PosDB();                       // a local database used to search trough products and categories & store pending orders
+            this.debug = jQuery.deparam(jQuery.param.querystring()).debug !== undefined;    //debug mode 
+            
+            // Business data; loaded from the server at launch
+            this.accounting_precision = 2; //TODO
+            this.company_logo = null;
+            this.company_logo_base64 = '';
+            this.currency = null;
+            this.shop = null;
+            this.company = null;
+            this.user = null;
+            this.users = [];
+            this.partners = [];
+            this.cashier = null;
+            this.cashregisters = [];
+            this.bankstatements = [];
+            this.taxes = [];
+            this.pos_session = null;
+            this.config = null;
+            this.units = [];
+            this.units_by_id = {};
+            this.pricelist = null;
+            this.order_sequence = 1;
+            window.posmodel = this;
 
-
-            // default attributes values. If null, it will be loaded below.
+            // these dynamic attributes can be watched for change by other models or widgets
             this.set({
-                'nbr_pending_operations': 0,    
-
-                'currency':         {symbol: '$', position: 'after'},
-                'shop':             null, 
-                'company':          null,
-                'user':             null,   // the user that loaded the pos
-                'user_list':        null,   // list of all users
-                'partner_list':     null,   // list of all partners with an ean
-                'cashier':          null,   // the logged cashier, if different from user
-
+                'synch':            { state:'connected', pending:0 }, 
                 'orders':           new module.OrderCollection(),
-                //this is the product list as seen by the product list widgets, it will change based on the category filters
-                'products':         new module.ProductCollection(), 
-                'customers':        new module.CustomerCollection(),
-                'cashRegisters':    null, 
-
-                'bank_statements':  null,
-                'taxes':            null,
-                'pos_session':      null,
-                'pos_config':       null,
-                'units':            null,
-                'units_by_id':      null,
-
                 'selectedOrder':    null,
             });
 
-            this.get('orders').bind('remove', function(){ self.on_removed_order(); });
+            this.bind('change:synch',function(pos,synch){
+                clearTimeout(self.synch_timeout);
+                self.synch_timeout = setTimeout(function(){
+                    if(synch.state !== 'disconnected' && synch.pending > 0){
+                        self.set('synch',{state:'disconnected', pending:synch.pending});
+                    }
+                },3000);
+            });
+
+            this.get('orders').bind('remove', function(order,_unused_,options){ 
+                self.on_removed_order(order,options.index,options.reason); 
+            });
             
             // We fetch the backend data on the server asynchronously. this is done only when the pos user interface is launched,
             // Any change on this data made on the server is thus not reflected on the point of sale until it is relaunched. 
             // when all the data has loaded, we compute some stuff, and declare the Pos ready to be used. 
-            $.when(this.load_server_data())
-                .done(function(){
-                    //self.log_loaded_data(); //Uncomment if you want to log the data to the console for easier debugging
-                    self.ready.resolve();
-                }).fail(function(){
-                    //we failed to load some backend data, or the backend was badly configured.
-                    //the error messages will be displayed in PosWidget
-                    self.ready.reject();
+            this.ready = this.load_server_data()
+                .then(function(){
+                    if(self.config.use_proxy){
+                        return self.connect_to_proxy();
+                    }
                 });
+            
         },
 
-        // helper function to load data from the server
-        fetch: function(model, fields, domain, ctx){
-            return new instance.web.Model(model).query(fields).filter(domain).context(ctx).all();
+        // releases ressources holds by the model at the end of life of the posmodel
+        destroy: function(){
+            // FIXME, should wait for flushing, return a deferred to indicate successfull destruction
+            // this.flush();
+            this.proxy.close();
+            this.barcode_reader.disconnect();
+            this.barcode_reader.disconnect_from_proxy();
         },
+        connect_to_proxy: function(){
+            var self = this;
+            var  done = new $.Deferred();
+            this.barcode_reader.disconnect_from_proxy();
+            this.pos_widget.loading_message(_t('Connecting to the PosBox'),0);
+            this.pos_widget.loading_skip(function(){
+                    self.proxy.stop_searching();
+                });
+            this.proxy.autoconnect({
+                    force_ip: self.config.proxy_ip || undefined,
+                    progress: function(prog){ 
+                        self.pos_widget.loading_progress(prog);
+                    },
+                }).then(function(){
+                    if(self.config.iface_scan_via_proxy){
+                        self.barcode_reader.connect_to_proxy();
+                    }
+                }).always(function(){
+                    done.resolve();
+                });
+            return done;
+        },
+
+        // helper function to load data from the server. Obsolete use the models loader below.
+        fetch: function(model, fields, domain, ctx){
+            this._load_progress = (this._load_progress || 0) + 0.05; 
+            this.pos_widget.loading_message(_t('Loading')+' '+model,this._load_progress);
+            return new instance.web.Model(model).query(fields).filter(domain).context(ctx).all()
+        },
+
+        // Server side model loaders. This is the list of the models that need to be loaded from
+        // the server. The models are loaded one by one by this list's order. The 'loaded' callback
+        // is used to store the data in the appropriate place once it has been loaded. This callback
+        // can return a deferred that will pause the loading of the next module. 
+        // a shared temporary dictionary is available for loaders to communicate private variables
+        // used during loading such as object ids, etc. 
+        models: [
+        {
+            model:  'res.users',
+            fields: ['name','company_id'],
+            domain: function(self){ return [['id','=',self.session.uid]]; },
+            loaded: function(self,users){ self.user = users[0]; },
+        },{ 
+            model:  'res.company',
+            fields: [ 'currency_id', 'email', 'website', 'company_registry', 'vat', 'name', 'phone', 'partner_id' , 'country_id'],
+            domain: function(self){ return [['id','=',self.user.company_id[0]]]; },
+            loaded: function(self,companies){ self.company = companies[0]; },
+        },{
+            model:  'product.uom',
+            fields: [],
+            domain: null,
+            loaded: function(self,units){
+                self.units = units;
+                var units_by_id = {};
+                for(var i = 0, len = units.length; i < len; i++){
+                    units_by_id[units[i].id] = units[i];
+                    units[i].groupable = ( units[i].category_id[0] === 1 );
+                    units[i].is_unit   = ( units[i].id === 1 );
+                }
+                self.units_by_id = units_by_id;
+            }
+        },{
+            model:  'res.users',
+            fields: ['name','ean13'],
+            domain: null,
+            loaded: function(self,users){ self.users = users; },
+        },{
+            model:  'res.partner',
+            fields: ['name','street','city','state_id','country_id','vat','phone','zip','mobile','email','ean13','write_date'],
+            domain: null,
+            loaded: function(self,partners){
+                self.partners = partners;
+                self.db.add_partners(partners);
+            },
+        },{
+            model:  'res.country',
+            fields: ['name'],
+            loaded: function(self,countries){
+                self.countries = countries;
+                self.company.country = null;
+                for (var i = 0; i < countries.length; i++) {
+                    if (countries[i].id === self.company.country_id[0]){
+                        self.company.country = countries[i];
+                    }
+                }
+            },
+        },{
+            model:  'account.tax',
+            fields: ['name','amount', 'price_include', 'type'],
+            domain: null,
+            loaded: function(self,taxes){ self.taxes = taxes; },
+        },{
+            model:  'pos.session',
+            fields: ['id', 'journal_ids','name','user_id','config_id','start_at','stop_at','sequence_number','login_number'],
+            domain: function(self){ return [['state','=','opened'],['user_id','=',self.session.uid]]; },
+            loaded: function(self,pos_sessions){
+                self.pos_session = pos_sessions[0]; 
+
+                var orders = self.db.get_orders();
+                for (var i = 0; i < orders.length; i++) {
+                    self.pos_session.sequence_number = Math.max(self.pos_session.sequence_number, orders[i].data.sequence_number+1);
+                }
+            },
+        },{
+            model: 'pos.config',
+            fields: [],
+            domain: function(self){ return [['id','=', self.pos_session.config_id[0]]]; },
+            loaded: function(self,configs){
+                self.config = configs[0];
+                self.config.use_proxy = self.config.iface_payment_terminal || 
+                                        self.config.iface_electronic_scale ||
+                                        self.config.iface_print_via_proxy  ||
+                                        self.config.iface_scan_via_proxy   ||
+                                        self.config.iface_cashdrawer;
+                
+                self.barcode_reader.add_barcode_patterns({
+                    'product':  self.config.barcode_product,
+                    'cashier':  self.config.barcode_cashier,
+                    'client':   self.config.barcode_customer,
+                    'weight':   self.config.barcode_weight,
+                    'discount': self.config.barcode_discount,
+                    'price':    self.config.barcode_price,
+                });
+
+                if (self.config.company_id[0] !== self.user.company_id[0]) {
+                    throw new Error(_t("Error: The Point of Sale User must belong to the same company as the Point of Sale. You are probably trying to load the point of sale as an administrator in a multi-company setup, with the administrator account set to the wrong company."));
+                }
+            },
+        },{
+            model: 'stock.location',
+            fields: [],
+            domain: function(self){ return [['id','=', self.config.stock_location_id[0]]]; },
+            loaded: function(self, locations){ self.shop = locations[0]; },
+        },{
+            model:  'product.pricelist',
+            fields: ['currency_id'],
+            domain: function(self){ return [['id','=',self.config.pricelist_id[0]]]; },
+            loaded: function(self, pricelists){ self.pricelist = pricelists[0]; },
+        },{
+            model: 'res.currency',
+            fields: ['symbol','position','rounding','accuracy'],
+            domain: function(self){ return [['id','=',self.pricelist.currency_id[0]]]; },
+            loaded: function(self, currencies){
+                self.currency = currencies[0];
+            },
+        },{
+            model: 'product.packaging',
+            fields: ['ean','product_tmpl_id'],
+            domain: null,
+            loaded: function(self, packagings){ 
+                self.db.add_packagings(packagings);
+            },
+        },{
+            model:  'pos.category',
+            fields: ['id','name','parent_id','child_id','image'],
+            domain: null,
+            loaded: function(self, categories){
+                self.db.add_categories(categories);
+            },
+        },{
+            model:  'product.product',
+            fields: ['display_name', 'list_price','price','pos_categ_id', 'taxes_id', 'ean13', 'default_code', 
+                     'to_weight', 'uom_id', 'uos_id', 'uos_coeff', 'mes_type', 'description_sale', 'description',
+                     'product_tmpl_id'],
+            domain:  function(self){ return [['sale_ok','=',true],['available_in_pos','=',true]]; },
+            context: function(self){ return { pricelist: self.pricelist.id, display_default_code: false }; },
+            loaded: function(self, products){
+                self.db.add_products(products);
+            },
+        },{
+            model:  'account.bank.statement',
+            fields: ['account_id','currency','journal_id','state','name','user_id','pos_session_id'],
+            domain: function(self){ return [['state', '=', 'open'],['pos_session_id', '=', self.pos_session.id]]; },
+            loaded: function(self, bankstatements, tmp){
+                self.bankstatements = bankstatements;
+
+                tmp.journals = [];
+                _.each(bankstatements,function(statement){
+                    tmp.journals.push(statement.journal_id[0]);
+                });
+            },
+        },{
+            model:  'account.journal',
+            fields: [],
+            domain: function(self,tmp){ return [['id','in',tmp.journals]]; },
+            loaded: function(self, journals){
+                self.journals = journals;
+
+                // associate the bank statements with their journals. 
+                var bankstatements = self.bankstatements;
+                for(var i = 0, ilen = bankstatements.length; i < ilen; i++){
+                    for(var j = 0, jlen = journals.length; j < jlen; j++){
+                        if(bankstatements[i].journal_id[0] === journals[j].id){
+                            bankstatements[i].journal = journals[j];
+                        }
+                    }
+                }
+                self.cashregisters = bankstatements;
+            },
+        },{
+            label: 'fonts',
+            loaded: function(self){
+                var fonts_loaded = new $.Deferred();
+
+                // Waiting for fonts to be loaded to prevent receipt printing
+                // from printing empty receipt while loading Inconsolata
+                // ( The font used for the receipt ) 
+                waitForWebfonts(['Lato','Inconsolata'], function(){
+                    fonts_loaded.resolve();
+                });
+
+                // The JS used to detect font loading is not 100% robust, so
+                // do not wait more than 5sec
+                setTimeout(function(){
+                    fonts_loaded.resolve();
+                },5000);
+
+                return fonts_loaded;
+            },
+        },{
+            label: 'pictures',
+            loaded: function(self){
+                self.company_logo = new Image();
+                var  logo_loaded = new $.Deferred();
+                self.company_logo.onload = function(){
+                    var img = self.company_logo;
+                    var ratio = 1;
+                    var targetwidth = 300;
+                    var maxheight = 150;
+                    if( img.width !== targetwidth ){
+                        ratio = targetwidth / img.width;
+                    }
+                    if( img.height * ratio > maxheight ){
+                        ratio = maxheight / img.height;
+                    }
+                    var width  = Math.floor(img.width * ratio);
+                    var height = Math.floor(img.height * ratio);
+                    var c = document.createElement('canvas');
+                        c.width  = width;
+                        c.height = height
+                    var ctx = c.getContext('2d');
+                        ctx.drawImage(self.company_logo,0,0, width, height);
+
+                    self.company_logo_base64 = c.toDataURL();
+                    logo_loaded.resolve();
+                };
+                self.company_logo.onerror = function(){
+                    logo_loaded.reject();
+                };
+                    self.company_logo.crossOrigin = "anonymous";
+                self.company_logo.src = '/web/binary/company_logo' +'?_'+Math.random();
+
+                return logo_loaded;
+            },
+        },
+        ],
+
         // loads all the needed data on the sever. returns a deferred indicating when all the data has loaded. 
         load_server_data: function(){
             var self = this;
+            var loaded = new $.Deferred();
+            var progress = 0;
+            var progress_step = 1.0 / self.models.length;
+            var tmp = {}; // this is used to share a temporary state between models loaders
 
-            var loaded = self.fetch('res.users',['name','company_id'],[['id','=',this.session.uid]]) 
-                .then(function(users){
-                    self.set('user',users[0]);
-
-                    return self.fetch('res.company',
-                    [
-                        'currency_id',
-                        'email',
-                        'website',
-                        'company_registry',
-                        'vat',
-                        'name',
-                        'phone',
-                        'partner_id',
-                    ],
-                    [['id','=',users[0].company_id[0]]]);
-                }).then(function(companies){
-                    self.set('company',companies[0]);
-
-                    return self.fetch('res.partner',['contact_address'],[['id','=',companies[0].partner_id[0]]]);
-                }).then(function(company_partners){
-                    self.get('company').contact_address = company_partners[0].contact_address;
-
-                    return self.fetch('res.currency',['symbol','position','rounding','accuracy'],[['id','=',self.get('company').currency_id[0]]]);
-                }).then(function(currencies){
-                    self.set('currency',currencies[0]);
-
-                    return self.fetch('product.uom', null, null);
-                }).then(function(units){
-                    self.set('units',units);
-                    var units_by_id = {};
-                    for(var i = 0, len = units.length; i < len; i++){
-                        units_by_id[units[i].id] = units[i];
-                    }
-                    self.set('units_by_id',units_by_id);
+            function load_model(index){
+                if(index >= self.models.length){
+                    loaded.resolve();
+                }else{
+                    var model = self.models[index];
+                    self.pos_widget.loading_message(_t('Loading')+' '+(model.label || model.model || ''), progress);
+                    var fields =  typeof model.fields === 'function'  ? model.fields(self,tmp)  : model.fields;
+                    var domain =  typeof model.domain === 'function'  ? model.domain(self,tmp)  : model.domain;
+                    var context = typeof model.context === 'function' ? model.context(self,tmp) : model.context; 
+                    progress += progress_step;
                     
-                    return self.fetch('product.packaging', null, null);
-                }).then(function(packagings){
-                    self.set('product.packaging',packagings);
-                    
-                    return self.fetch('res.users', ['name','ean13'], [['ean13', '!=', false]]);
-                }).then(function(users){
-                    self.set('user_list',users);
-
-                    return self.fetch('res.partner', ['name','ean13'], [['ean13', '!=', false]]);
-                }).then(function(partners){
-                    self.set('partner_list',partners);
-
-                    return self.fetch('res.partner', ['name','vat','email','phone','contact_address'], [['customer', '=', true]]);
-                }).then(function(customers){
-                    self.db.add_customers(customers);
-                    
-                    return self.fetch('account.tax', ['amount', 'price_include', 'type']);
-                }).then(function(taxes){
-                    self.set('taxes', taxes);
-
-                    return self.fetch(
-                        'pos.session', 
-                        ['id', 'journal_ids','name','user_id','config_id','start_at','stop_at'],
-                        [['state', '=', 'opened'], ['user_id', '=', self.session.uid]]
-                    );
-                }).then(function(sessions){
-                    self.set('pos_session', sessions[0]);
-
-                    return self.fetch(
-                        'pos.config',
-                        ['name','journal_ids','shop_id','journal_id',
-                         'iface_self_checkout', 'iface_led', 'iface_cashdrawer',
-                         'iface_payment_terminal', 'iface_electronic_scale', 'iface_barscan', 'iface_vkeyboard',
-                         'iface_print_via_proxy','iface_cashdrawer','state','sequence_id','session_ids'],
-                        [['id','=', self.get('pos_session').config_id[0]]]
-                    );
-                }).then(function(configs){
-                    var pos_config = configs[0];
-                    self.set('pos_config', pos_config);
-                    self.iface_electronic_scale    =  !!pos_config.iface_electronic_scale;  
-                    self.iface_print_via_proxy     =  !!pos_config.iface_print_via_proxy;
-                    self.iface_vkeyboard           =  !!pos_config.iface_vkeyboard; 
-                    self.iface_self_checkout       =  !!pos_config.iface_self_checkout;
-                    self.iface_cashdrawer          =  !!pos_config.iface_cashdrawer;
-
-                    return self.fetch('sale.shop',[],[['id','=',pos_config.shop_id[0]]]);
-                }).then(function(shops){
-                    self.set('shop',shops[0]);
-
-                    return self.fetch('product.packaging',['ean','product_id']);
-                }).then(function(packagings){
-                    self.db.add_packagings(packagings);
-
-                    return self.fetch('pos.category', ['id','name','parent_id','child_id','image']);
-                }).then(function(categories){
-                    self.db.add_categories(categories);
-
-                    return self.fetch(
-                        'product.product', 
-                        ['name', 'code', 'list_price','price','pos_categ_id', 'taxes_id', 'ean13', 
-                         'to_weight', 'uom_id', 'uos_id', 'uos_coeff', 'mes_type', 'description_sale', 'description'],
-                        [['sale_ok','=',true],['available_in_pos','=',true]],
-                        {pricelist: self.get('shop').pricelist_id[0]} // context for price
-                    );
-                }).then(function(products){
-                    self.db.add_products(products);
-                    
-                    return self.fetch('pos.order', ['name','session_id', 'id', 'lines','date_order', 'pos_reference', 'partner_id', 'creationDate'], [['state', '=', 'draft']]);
-                }).then(function(orders){
-                    self.load_orders(orders);
-
-                    return self.fetch(
-                        'account.bank.statement',
-                        ['account_id','currency','journal_id','state','name','user_id','pos_session_id'],
-                        [['state','=','open'],['pos_session_id', '=', self.get('pos_session').id]]
-                    );
-                }).then(function(bank_statements){
-                    var journals = new Array();
-                    _.each(bank_statements,function(statement) {
-                        journals.push(statement.journal_id[0]);
-                    });
-                    self.set('bank_statements', bank_statements);
-                    return self.fetch('account.journal', undefined, [['id','in', journals]]);
-                }).then(function(journals){
-                    self.set('journals',journals);
-
-                    // associate the bank statements with their journals. 
-                    var bank_statements = self.get('bank_statements');
-                    for(var i = 0, ilen = bank_statements.length; i < ilen; i++){
-                        for(var j = 0, jlen = journals.length; j < jlen; j++){
-                            if(bank_statements[i].journal_id[0] === journals[j].id){
-                                bank_statements[i].journal = journals[j];
-                                bank_statements[i].self_checkout_payment_method = journals[j].self_checkout_payment_method;
-                            }
+                    if( model.model ){
+                        new instance.web.Model(model.model).query(fields).filter(domain).context(context).all()
+                            .then(function(result){
+                                try{    // catching exceptions in model.loaded(...)
+                                    $.when(model.loaded(self,result,tmp))
+                                        .then(function(){ load_model(index + 1); },
+                                              function(err){ loaded.reject(err); });
+                                }catch(err){
+                                    loaded.reject(err);
+                                }
+                            },function(err){
+                                loaded.reject(err);
+                            });
+                    }else if( model.loaded ){
+                        try{    // catching exceptions in model.loaded(...)
+                            $.when(model.loaded(self,tmp))
+                                .then(  function(){ load_model(index +1); },
+                                        function(err){ loaded.reject(err); });
+                        }catch(err){
+                            loaded.reject(err);
                         }
+                    }else{
+                        load_model(index + 1);
                     }
-                    self.set({'cashRegisters' : new module.CashRegisterCollection(self.get('bank_statements'))});
-                });
-        
+                }
+            }
+
+            try{
+                load_model(0);
+            }catch(err){
+                loaded.reject(err);
+            }
+
             return loaded;
         },
 
-        // logs the usefull posmodel data to the console for debug purposes
-        log_loaded_data: function(){
-            console.log('PosModel data has been loaded:');
-            console.log('PosModel: units:',this.get('units'));
-            console.log('PosModel: bank_statements:',this.get('bank_statements'));
-            console.log('PosModel: journals:',this.get('journals'));
-            console.log('PosModel: taxes:',this.get('taxes'));
-            console.log('PosModel: pos_session:',this.get('pos_session'));
-            console.log('PosModel: pos_config:',this.get('pos_config'));
-            console.log('PosModel: cashRegisters:',this.get('cashRegisters'));
-            console.log('PosModel: shop:',this.get('shop'));
-            console.log('PosModel: company:',this.get('company'));
-            console.log('PosModel: currency:',this.get('currency'));
-            console.log('PosModel: user_list:',this.get('user_list'));
-            console.log('PosModel: user:',this.get('user'));
-            console.log('PosModel.session:',this.session);
-            console.log('PosModel end of data log.');
-        },
-        
-        // this is called when an order is removed from the order collection. It ensures that there is always an existing
-        // order and a valid selected order
-        on_removed_order: function(removed_order){
-            if( this.get('orders').isEmpty()){
-                this.add_new_order();
-            }else{
-                this.set({ selectedOrder: this.get('orders').last() });
-            }
+        // reload the list of partner, returns as a deferred that resolves if there were
+        // updated partners, and fails if not
+        load_new_partners: function(){
+            var self = this;
+            var def  = new $.Deferred();
+            var fields = _.find(this.models,function(model){ return model.model === 'res.partner'; }).fields;
+            new instance.web.Model('res.partner')
+                .query(fields)
+                .filter([['write_date','>',this.db.get_partner_write_date()]])
+                .all({'timeout':3000, 'shadow': true})
+                .then(function(partners){
+                    if (self.db.add_partners(partners)) {   // check if the partners we got were real updates
+                        def.resolve();
+                    } else {
+                        def.reject();
+                    }
+                }, function(){ def.reject(); });    
+            return def;
         },
 
-        // saves the order locally and try to send it to the backend. 'record' is a bizzarely defined JSON version of the Order
-        push_order: function(record) {
-            this.db.add_order(record);
-            this.flush();
+        // this is called when an order is removed from the order collection. It ensures that there is always an existing
+        // order and a valid selected order
+        on_removed_order: function(removed_order,index,reason){
+            if( (reason === 'abandon' || removed_order.temporary) && this.get('orders').size() > 0){
+                // when we intentionally remove an unfinished order, and there is another existing one
+                this.set({'selectedOrder' : this.get('orders').at(index) || this.get('orders').last()});
+            }else{
+                // when the order was automatically removed after completion, 
+                // or when we intentionally delete the only concurrent order
+                this.add_new_order();
+            }
         },
 
         //creates a new empty order and sets it as the current order
@@ -262,172 +443,186 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
             this.set('selectedOrder', order);
         },
 
-        // attemps to send all pending orders ( stored in the pos_db ) to the server,
-        // and remove the successfully sent ones from the db once
-        // it has been confirmed that they have been sent correctly.
-        flush: function() {
-            //TODO make the mutex work 
-            //this makes sure only one _int_flush is called at the same time
-            /*
-            return this.flush_mutex.exec(_.bind(function() {
-                return this._flush(0);
-            }, this));
-            */
-            this._flush(0);
-        },
-        // attempts to send an order of index 'index' in the list of order to send. The index
-        // is used to skip orders that failed. do not call this method outside the mutex provided
-        // by flush() 
-        _flush: function(index){
-            var self = this,
-                orders = this.db.get_orders();
-            self.set('nbr_pending_operations',orders.length);
-
-            var order  = orders[index];
-            if(!order){
-                return;
-            }
-            //try to push an order to the server
-            // shadow : true is to prevent a spinner to appear in case of timeout
-            (new instance.web.Model('pos.order')).call('create_from_ui',[[order]],undefined,{ shadow:true })
-                .fail(function(unused, event){
-                    //don't show error popup if it fails 
-                    event.preventDefault();
-                    console.error('Failed to send order:',order);
-                    self._flush(index+1);
-                })
-                .done(function(order_id){
-                    //TODO: Encontrar la forma de no usar ciclos anidados
-
-                    // Get current order name
-                    var name = [order][0].data.name;
-                    
-                    // Add order_id to javascript object
-                    // models contain the current orders on javascript
-                    models = self.get('orders').models;
-                    
-                    for (var i = 0, l = order_id.length; i < l; i++) {
-                        for (var x = 0, y = models.length; x < y; x++) {
-                            model = models[i];
-                            
-                            if (model.get('name') == name) {
-                                model.set('order_id', order_id[i]);
-                            }
-                        }
-                    }
-                    //remove from db if success
-                    self.db.remove_order(order.id);
-                    self._flush(index);
-                });
+        get_order: function(){
+            return this.get('selectedOrder');
         },
 
-        scan_product: function(parsed_ean){
+        //removes the current order
+        delete_current_order: function(){
+            this.get('selectedOrder').destroy({'reason':'abandon'});
+        },
+
+        // saves the order locally and try to send it to the backend. 
+        // it returns a deferred that succeeds after having tried to send the order and all the other pending orders.
+        push_order: function(order) {
             var self = this;
-            var product = this.db.get_product_by_ean13(parsed_ean.base_ean);
+
+            if(order){
+                this.proxy.log('push_order',order.export_as_JSON());
+                this.db.add_order(order.export_as_JSON());
+            }
+            
+            var pushed = new $.Deferred();
+
+            this.flush_mutex.exec(function(){
+                var flushed = self._flush_orders(self.db.get_orders());
+
+                flushed.always(function(ids){
+                    pushed.resolve();
+                });
+            });
+            return pushed;
+        },
+
+        // saves the order locally and try to send it to the backend and make an invoice
+        // returns a deferred that succeeds when the order has been posted and successfully generated
+        // an invoice. This method can fail in various ways:
+        // error-no-client: the order must have an associated partner_id. You can retry to make an invoice once
+        //     this error is solved
+        // error-transfer: there was a connection error during the transfer. You can retry to make the invoice once
+        //     the network connection is up 
+
+        push_and_invoice_order: function(order){
+            var self = this;
+            var invoiced = new $.Deferred(); 
+
+            if(!order.get_client()){
+                invoiced.reject('error-no-client');
+                return invoiced;
+            }
+
+            var order_id = this.db.add_order(order.export_as_JSON());
+
+            this.flush_mutex.exec(function(){
+                var done = new $.Deferred(); // holds the mutex
+
+                // send the order to the server
+                // we have a 30 seconds timeout on this push.
+                // FIXME: if the server takes more than 30 seconds to accept the order,
+                // the client will believe it wasn't successfully sent, and very bad
+                // things will happen as a duplicate will be sent next time
+                // so we must make sure the server detects and ignores duplicated orders
+
+                var transfer = self._flush_orders([self.db.get_order(order_id)], {timeout:30000, to_invoice:true});
+                
+                transfer.fail(function(){
+                    invoiced.reject('error-transfer');
+                    done.reject();
+                });
+
+                // on success, get the order id generated by the server
+                transfer.pipe(function(order_server_id){    
+
+                    // generate the pdf and download it
+                    self.pos_widget.do_action('point_of_sale.pos_invoice_report',{additional_context:{ 
+                        active_ids:order_server_id,
+                    }});
+
+                    invoiced.resolve();
+                    done.resolve();
+                });
+
+                return done;
+
+            });
+
+            return invoiced;
+        },
+
+        // wrapper around the _save_to_server that updates the synch status widget
+        _flush_orders: function(orders, options) {
+            var self = this;
+
+            this.set('synch',{ state: 'connecting', pending: orders.length});
+
+            return self._save_to_server(orders, options).done(function (server_ids) {
+                var pending = self.db.get_orders().length;
+
+                self.set('synch', {
+                    state: pending ? 'connecting' : 'connected',
+                    pending: pending
+                });
+
+                return server_ids;
+            });
+        },
+
+        // send an array of orders to the server
+        // available options:
+        // - timeout: timeout for the rpc call in ms
+        // returns a deferred that resolves with the list of
+        // server generated ids for the sent orders
+        _save_to_server: function (orders, options) {
+            if (!orders || !orders.length) {
+                var result = $.Deferred();
+                result.resolve([]);
+                return result;
+            }
+                
+            options = options || {};
+
+            var self = this;
+            var timeout = typeof options.timeout === 'number' ? options.timeout : 7500 * orders.length;
+
+            // we try to send the order. shadow prevents a spinner if it takes too long. (unless we are sending an invoice,
+            // then we want to notify the user that we are waiting on something )
+            var posOrderModel = new instance.web.Model('pos.order');
+            return posOrderModel.call('create_from_ui',
+                [_.map(orders, function (order) {
+                    order.to_invoice = options.to_invoice || false;
+                    return order;
+                })],
+                undefined,
+                {
+                    shadow: !options.to_invoice,
+                    timeout: timeout
+                }
+            ).then(function (server_ids) {
+                _.each(orders, function (order) {
+                    self.db.remove_order(order.id);
+                });
+                return server_ids;
+            }).fail(function (error, event){
+                if(error.code === 200 ){    // Business Logic Error, not a connection problem
+                    self.pos_widget.screen_selector.show_popup('error-traceback',{
+                        message: error.data.message,
+                        comment: error.data.debug
+                    });
+                }
+                // prevent an error popup creation by the rpc failure
+                // we want the failure to be silent as we send the orders in the background
+                event.preventDefault();
+                console.error('Failed to send orders:', orders);
+            });
+        },
+
+        scan_product: function(parsed_code){
+            var self = this;
             var selectedOrder = this.get('selectedOrder');
+            if(parsed_code.encoding === 'ean13'){
+                var product = this.db.get_product_by_ean13(parsed_code.base_code);
+            }else if(parsed_code.encoding === 'reference'){
+                var product = this.db.get_product_by_reference(parsed_code.code);
+            }
 
             if(!product){
                 return false;
             }
 
-            if(parsed_ean.type === 'price'){
-                selectedOrder.addProduct(new module.Product(product), {price:parsed_ean.value});
-            }else if(parsed_ean.type === 'weight'){
-                selectedOrder.addProduct(new module.Product(product), {quantity:parsed_ean.value, merge:false});
+            if(parsed_code.type === 'price'){
+                selectedOrder.addProduct(product, {price:parsed_code.value});
+            }else if(parsed_code.type === 'weight'){
+                selectedOrder.addProduct(product, {quantity:parsed_code.value, merge:false});
+            }else if(parsed_code.type === 'discount'){
+                selectedOrder.addProduct(product, {discount:parsed_code.value, merge:false});
             }else{
-                selectedOrder.addProduct(new module.Product(product));
+                selectedOrder.addProduct(product);
             }
             return true;
         },
-
-        keypad_enter_product: function(parsed_data){
-            var self = this;
-            var doMerge = true;
-            var product = this.db.get_product_by_code(parsed_data.code);
-            var selectedOrder = this.get('selectedOrder');
-
-            if (parsed_data.void_last_line) {
-                line = selectedOrder.getLastOrderline();
-                if (line) {
-                    line.set_quantity(Number.NaN);
-                }
-                return true;
-            }
-            
-            if (!product){
-                return false;
-            }
-            
-            if (parsed_data.discount > 0) {
-                doMerge = false;
-            }
-            
-            if (!parsed_data.priceOverride) {
-                parsed_data.price = product.price;
-            }
-
-//            if (product.get('to_weight') && self.pos.iface_electronic_scale) {
-//                self.pos_widget.screen_selector.set_current_screen(self.scale_screen, {product: product});
-//            } else {
-                selectedOrder.addProduct(new module.Product(product), { quantity: parsed_data.qty,
-                                                                        price: parsed_data.price,
-                                                                        merge: doMerge});
-//            }
-            if (!doMerge){
-                selectedOrder.selected_orderline.set_discount(parsed_data.discount);
-            }
-            return true;
-        },
-        
-        load_orders: function(orders){
-            var self = this,
-                order;
-            
-            if(!orders instanceof Array){orders = [orders];}
-            for(i = 0, len = orders.length; i < len; i++){
-                order = orders[i];
-                self.create_order(order);
-            }
-        },
-        
-        create_order: function(order){
-            var self = this,
-                new_order = new module.Order({creationDate:order.date_order, 
-                                              name:order.pos_reference, 
-                                              partner_id:order.partner_id, 
-                                              order_id:order.id, 
-                                              pos:self});
-            //Get current lines from remote database                         
-            self.fetch('pos.order.line', ['product_id', 'qty', 'discount'], [['order_id', '=', order.id]])
-                .then(function(lines) {
-                    for (j = 0, lines_len = lines.length; j < lines_len; j++) {
-                        line = lines[j];
-                        product = self.db.get_product_by_id(line.product_id[0]);                       
-                        new_order.addProduct(new module.Product(product), {quantity:line.qty});
-                        if (line.discount > 0) {new_order.getSelectedLine().set_discount(line.discount);}
-                    }
-                });
-            self.get('orders').add(new_order);
-            self.set('selectedOrder', new_order);
-        }
     });
 
-    module.CashRegister = Backbone.Model.extend({
-    });
-
-    module.CashRegisterCollection = Backbone.Collection.extend({
-        model: module.CashRegister,
-    });
-
-    module.Product = Backbone.Model.extend({
-        get_image_url: function(){
-            return instance.session.url('/web/binary/image', {model: 'product.product', field: 'image', id: this.get('id')});
-        },
-    });
-
-    module.ProductCollection = Backbone.Collection.extend({
-        model: module.Product,
-    });
+    var orderline_id = 1;
 
     // An orderline represent one element of the content of a client's shopping cart.
     // An orderline contains a product, its quantity, its price, discount. etc. 
@@ -437,20 +632,35 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
             this.pos = options.pos;
             this.order = options.order;
             this.product = options.product;
-            this.price   = options.product.get('price');
+            this.price   = options.product.price;
             this.quantity = 1;
             this.quantityStr = '1';
             this.discount = 0;
             this.discountStr = '0';
             this.type = 'unit';
             this.selected = false;
+            this.id       = orderline_id++; 
+        },
+        clone: function(){
+            var orderline = new module.Orderline({},{
+                pos: this.pos,
+                order: null,
+                product: this.product,
+                price: this.price,
+            });
+            orderline.quantity = this.quantity;
+            orderline.quantityStr = this.quantityStr;
+            orderline.discount = this.discount;
+            orderline.type = this.type;
+            orderline.selected = false;
+            return orderline;
         },
         // sets a discount [0,100]%
         set_discount: function(discount){
             var disc = Math.min(Math.max(parseFloat(discount) || 0, 0),100);
             this.discount = disc;
             this.discountStr = '' + disc;
-            this.trigger('change');
+            this.trigger('change',this);
         },
         // returns the discount [0,100]%
         get_discount: function(){
@@ -470,17 +680,17 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                 this.order.removeOrderline(this);
                 return;
             }else{
-                var quant = Math.max(parseFloat(quantity) || 0, 0);
+                var quant = parseFloat(quantity) || 0;
                 var unit = this.get_unit();
                 if(unit){
-                    this.quantity    = Math.max(unit.rounding, round_pr(quant, unit.rounding));
-                    this.quantityStr = this.quantity.toFixed(Math.max(0,Math.ceil(Math.log(1.0 / unit.rounding) / Math.log(10))));
+                    this.quantity    = round_pr(quant, unit.rounding);
+                    this.quantityStr = this.quantity.toFixed(Math.ceil(Math.log(1.0 / unit.rounding) / Math.log(10)));
                 }else{
                     this.quantity    = quant;
                     this.quantityStr = '' + this.quantity;
                 }
             }
-            this.trigger('change');
+            this.trigger('change',this);
         },
         // return the quantity of product
         get_quantity: function(){
@@ -491,7 +701,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
         },
         get_quantity_str_with_unit: function(){
             var unit = this.get_unit();
-            if(unit && unit.name !== 'Unit(s)'){
+            if(unit && !unit.is_unit){
                 return this.quantityStr + ' ' + unit.name;
             }else{
                 return this.quantityStr;
@@ -499,7 +709,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
         },
         // return the unit of measure of the product
         get_unit: function(){
-            var unit_id = (this.product.get('uos_id') || this.product.get('uom_id'));
+            var unit_id = (this.product.uos_id || this.product.uom_id);
             if(!unit_id){
                 return undefined;
             }
@@ -507,7 +717,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
             if(!this.pos){
                 return undefined;
             }
-            return this.pos.get('units_by_id')[unit_id];
+            return this.pos.units_by_id[unit_id];
         },
         // return the product of this orderline
         get_product: function(){
@@ -516,7 +726,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
         // selects or deselects this orderline
         set_selected: function(selected){
             this.selected = selected;
-            this.trigger('change');
+            this.trigger('change',this);
         },
         // returns true if this orderline is selected
         is_selected: function(){
@@ -525,7 +735,9 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
         // when we add an new orderline we want to merge it with the last line to see reduce the number of items
         // in the orderline. This returns true if it makes sense to merge the two
         can_be_merged_with: function(orderline){
-            if( this.get_product().get('id') !== orderline.get_product().get('id')){    //only orderline of the same product can be merged
+            if( this.get_product().id !== orderline.get_product().id){    //only orderline of the same product can be merged
+                return false;
+            }else if(!this.get_unit() || !this.get_unit().groupable){
                 return false;
             }else if(this.get_product_type() !== orderline.get_product_type()){
                 return false;
@@ -545,7 +757,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                 qty: this.get_quantity(),
                 price_unit: this.get_unit_price(),
                 discount: this.get_discount(),
-                product_id: this.get_product().get('id'),
+                product_id: this.get_product().id,
             };
         },
         //used to create a json of the ticket, to be sent to the printer
@@ -555,26 +767,26 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                 unit_name:          this.get_unit().name,
                 price:              this.get_unit_price(),
                 discount:           this.get_discount(),
-                product_name:       this.get_product().get('name'),
+                product_name:       this.get_product().display_name,
                 price_display :     this.get_display_price(),
                 price_with_tax :    this.get_price_with_tax(),
                 price_without_tax:  this.get_price_without_tax(),
                 tax:                this.get_tax(),
-                product_description:      this.get_product().get('description'),
-                product_description_sale: this.get_product().get('description_sale'),
+                product_description:      this.get_product().description,
+                product_description_sale: this.get_product().description_sale,
             };
         },
         // changes the base price of the product for this orderline
         set_unit_price: function(price){
             this.price = round_di(parseFloat(price) || 0, 2);
-            this.trigger('change');
+            this.trigger('change',this);
         },
         get_unit_price: function(){
-            var rounding = this.pos.get('currency').rounding;
+            var rounding = this.pos.currency.rounding;
             return round_pr(this.price,rounding);
         },
         get_display_price: function(){
-            var rounding = this.pos.get('currency').rounding;
+            var rounding = this.pos.currency.rounding;
             return  round_pr(round_pr(this.get_unit_price() * this.get_quantity(),rounding) * (1- this.get_discount()/100.0),rounding);
         },
         get_price_without_tax: function(){
@@ -586,18 +798,21 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
         get_tax: function(){
             return this.get_all_prices().tax;
         },
+        get_tax_details: function(){
+            return this.get_all_prices().taxDetails;
+        },
         get_all_prices: function(){
             var self = this;
-            var currency_rounding = this.pos.get('currency').rounding;
+            var currency_rounding = this.pos.currency.rounding;
             var base = round_pr(this.get_quantity() * this.get_unit_price() * (1.0 - (this.get_discount() / 100.0)), currency_rounding);
             var totalTax = base;
             var totalNoTax = base;
             
-            var product_list = this.pos.get('product_list');
             var product =  this.get_product(); 
-            var taxes_ids = product.get('taxes_id');;
-            var taxes =  self.pos.get('taxes');
+            var taxes_ids = product.taxes_id;
+            var taxes =  self.pos.taxes;
             var taxtotal = 0;
+            var taxdetail = {};
             _.each(taxes_ids, function(el) {
                 var tax = _.detect(taxes, function(t) {return t.id === el;});
                 if (tax.price_include) {
@@ -612,6 +827,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                     tmp = round_pr(tmp,currency_rounding);
                     taxtotal += tmp;
                     totalNoTax -= tmp;
+                    taxdetail[tax.id] = tmp;
                 } else {
                     var tmp;
                     if (tax.type === "percent") {
@@ -624,12 +840,14 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                     tmp = round_pr(tmp,currency_rounding);
                     taxtotal += tmp;
                     totalTax += tmp;
+                    taxdetail[tax.id] = tmp;
                 }
             });
             return {
                 "priceWithTax": totalTax,
                 "priceWithoutTax": totalNoTax,
                 "tax": taxtotal,
+                "taxDetails": taxdetail,
             };
         },
     });
@@ -638,32 +856,37 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
         model: module.Orderline,
     });
 
-    // Every PaymentLine contains a cashregister and an amount of money.
+    // Every Paymentline contains a cashregister and an amount of money.
     module.Paymentline = Backbone.Model.extend({
         initialize: function(attributes, options) {
             this.amount = 0;
-            this.cashregister = options.cashRegister;
+            this.cashregister = options.cashregister;
+            this.name = this.cashregister.journal_id[1];
+            this.selected = false;
         },
         //sets the amount of money on this payment line
         set_amount: function(value){
-            this.amount = parseFloat(value) || 0;
-            this.trigger('change');
+            this.amount = round_di(parseFloat(value) || 0, 2);
+            this.trigger('change:amount',this);
         },
         // returns the amount of money on this paymentline
         get_amount: function(){
             return this.amount;
         },
-        // returns the associated cashRegister
-        get_cashregister: function(){
-            return this.cashregister;
+        set_selected: function(selected){
+            if(this.selected !== selected){
+                this.selected = selected;
+                this.trigger('change:selected',this);
+            }
         },
+        // returns the associated cashregister
         //exports as JSON for server communication
         export_as_JSON: function(){
             return {
                 name: instance.web.datetime_to_str(new Date()),
-                statement_id: this.cashregister.get('id'),
-                account_id: (this.cashregister.get('account_id'))[0],
-                journal_id: (this.cashregister.get('journal_id'))[0],
+                statement_id: this.cashregister.id,
+                account_id: this.cashregister.account_id[0],
+                journal_id: this.cashregister.journal_id[0],
                 amount: this.get_amount()
             };
         },
@@ -671,7 +894,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
         export_for_printing: function(){
             return {
                 amount: this.get_amount(),
-                journal: this.cashregister.get('journal_id')[1],
+                journal: this.cashregister.journal_id[1],
             };
         },
     });
@@ -682,38 +905,61 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
     
 
     // An order more or less represents the content of a client's shopping cart (the OrderLines) 
-    // plus the associated payment information (the PaymentLines) 
+    // plus the associated payment information (the Paymentlines) 
     // there is always an active ('selected') order in the Pos, a new one is created
     // automaticaly once an order is completed and sent to the server.
     module.Order = Backbone.Model.extend({
         initialize: function(attributes){
             Backbone.Model.prototype.initialize.apply(this, arguments);
+            this.pos = attributes.pos; 
+            this.sequence_number = this.pos.pos_session.sequence_number++;
+            this.uid =     this.generateUniqueId();
             this.set({
-                creationDate:   attributes.creationDate != null ? instance.web.str_to_datetime(attributes.creationDate) : new Date(),
+                creationDate:   new Date(),
                 orderLines:     new module.OrderlineCollection(),
                 paymentLines:   new module.PaymentlineCollection(),
-                name:           attributes.name != null ? attributes.name : "Order " + this.generateUniqueId(),
-                client:         attributes.partner_id != null ? attributes.partner_id :   null,
-                order_id:       attributes.order_id || null
+                name:           _t("Order ") + this.uid,
+                client:         null,
             });
-            this.pos =     attributes.pos; 
-            this.selected_orderline = undefined;
+            this.selected_orderline   = undefined;
+            this.selected_paymentline = undefined;
             this.screen_data = {};  // see ScreenSelector
             this.receipt_type = 'receipt';  // 'receipt' || 'invoice'
+            this.temporary = attributes.temporary || false;
             return this;
         },
+        is_empty: function(){
+            return (this.get('orderLines').models.length === 0);
+        },
+        // Generates a public identification number for the order.
+        // The generated number must be unique and sequential. They are made 12 digit long
+        // to fit into EAN-13 barcodes, should it be needed 
         generateUniqueId: function() {
-            return new Date().getTime();
+            function zero_pad(num,size){
+                var s = ""+num;
+                while (s.length < size) {
+                    s = "0" + s;
+                }
+                return s;
+            }
+            return zero_pad(this.pos.pos_session.id,5) +'-'+
+                   zero_pad(this.pos.pos_session.login_number,3) +'-'+
+                   zero_pad(this.sequence_number,4);
+        },
+        addOrderline: function(line){
+            if(line.order){
+                order.removeOrderline(line);
+            }
+            line.order = this;
+            this.get('orderLines').add(line);
+            this.selectLine(this.getLastOrderline());
         },
         addProduct: function(product, options){
             options = options || {};
-            var attr = product.toJSON(),
-            // Helper variable to prevent product added twice
-            added = false,
-            line = new module.Orderline({}, {pos: this.pos, order: this, product: product}),
-            self = this;
+            var attr = JSON.parse(JSON.stringify(product));
             attr.pos = this.pos;
             attr.order = this;
+            var line = new module.Orderline({}, {pos: this.pos, order: this, product: product});
 
             if(options.quantity !== undefined){
                 line.set_quantity(options.quantity);
@@ -721,35 +967,49 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
             if(options.price !== undefined){
                 line.set_unit_price(options.price);
             }
-            
-            if(this.get('orderLines').at(this.get('orderLines').length -1)){
-            	this.get('orderLines').each(function(last_orderline){
-                    if(last_orderline && last_orderline.can_be_merged_with(line) && options.merge !== false){
-                        last_orderline.merge(line);
-                        added = true;
-                        self.selectLine(last_orderline);
-                        return;
-                    }
-            	});
+            if(options.discount !== undefined){
+                line.set_discount(options.discount);
             }
-            if(added){return;}
-            this.get('orderLines').add(line);
+
+            var last_orderline = this.getLastOrderline();
+            if( last_orderline && last_orderline.can_be_merged_with(line) && options.merge !== false){
+                last_orderline.merge(line);
+            }else{
+                this.get('orderLines').add(line);
+            }
             this.selectLine(this.getLastOrderline());
         },
         removeOrderline: function( line ){
             this.get('orderLines').remove(line);
             this.selectLine(this.getLastOrderline());
         },
+        getOrderline: function(id){
+            var orderlines = this.get('orderLines').models;
+            for(var i = 0; i < orderlines.length; i++){
+                if(orderlines[i].id === id){
+                    return orderlines[i];
+                }
+            }
+            return null;
+        },
         getLastOrderline: function(){
             return this.get('orderLines').at(this.get('orderLines').length -1);
         },
-        addPaymentLine: function(cashRegister) {
+        addPaymentline: function(cashregister) {
             var paymentLines = this.get('paymentLines');
-            var newPaymentline = new module.Paymentline({},{cashRegister:cashRegister});
-            if(cashRegister.get('journal').type !== 'cash'){
-                newPaymentline.set_amount( this.getDueLeft() );
+            var newPaymentline = new module.Paymentline({},{cashregister:cashregister});
+            if(cashregister.journal.type !== 'cash'){
+                newPaymentline.set_amount( Math.max(this.getDueLeft(),0) );
             }
             paymentLines.add(newPaymentline);
+            this.selectPaymentline(newPaymentline);
+
+        },
+        removePaymentline: function(line){
+            if(this.selected_paymentline === line){
+                this.selectPaymentline(undefined);
+            }
+            this.get('paymentLines').remove(line);
         },
         getName: function() {
             return this.get('name');
@@ -778,6 +1038,32 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
             return (this.get('orderLines')).reduce((function(sum, orderLine) {
                 return sum + orderLine.get_tax();
             }), 0);
+        },
+        getTaxDetails: function(){
+            var details = {};
+            var fulldetails = [];
+            var taxes_by_id = {};
+            
+            for(var i = 0; i < this.pos.taxes.length; i++){
+                taxes_by_id[this.pos.taxes[i].id] = this.pos.taxes[i];
+            }
+
+            this.get('orderLines').each(function(line){
+                var ldetails = line.get_tax_details();
+                for(var id in ldetails){
+                    if(ldetails.hasOwnProperty(id)){
+                        details[id] = (details[id] || 0) + ldetails[id];
+                    }
+                }
+            });
+            
+            for(var id in details){
+                if(details.hasOwnProperty(id)){
+                    fulldetails.push({amount: details[id], tax: taxes_by_id[id], name: taxes_by_id[id].name});
+                }
+            }
+
+            return fulldetails;
         },
         getPaidTotal: function() {
             return (this.get('paymentLines')).reduce((function(sum, paymentLine) {
@@ -836,9 +1122,9 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                 paymentlines.push(paymentline.export_for_printing());
             });
             var client  = this.get('client');
-            var cashier = this.pos.get('cashier') || this.pos.get('user');
-            var company = this.pos.get('company');
-            var shop    = this.pos.get('shop');
+            var cashier = this.pos.cashier || this.pos.user;
+            var company = this.pos.company;
+            var shop    = this.pos.shop;
             var date = new Date();
 
             return {
@@ -850,35 +1136,46 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                 total_tax: this.getTax(),
                 total_paid: this.getPaidTotal(),
                 total_discount: this.getDiscountTotal(),
+                tax_details: this.getTaxDetails(),
                 change: this.getChange(),
                 name : this.getName(),
-                client: client ? client : null ,
+                client: client ? client.name : null ,
                 invoice_id: null,   //TODO
                 cashier: cashier ? cashier.name : null,
+                header: this.pos.config.receipt_header || '',
+                footer: this.pos.config.receipt_footer || '',
+                precision: {
+                    price: 2,
+                    money: 2,
+                    quantity: 3,
+                },
                 date: { 
                     year: date.getFullYear(), 
-                    month: date.getMonth()+1,   // http://stackoverflow.com/questions/10211145/getting-current-date-and-time-in-javascript 
+                    month: date.getMonth()+1,   // http://stackoverflow.com/questions/10211145/getting-current-date-and-time-in-javascript  
                     date: date.getDate(),       // day of the month 
                     day: date.getDay(),         // day of the week 
                     hour: date.getHours(), 
-                    minute: date.getMinutes() 
+                    minute: date.getMinutes() ,
+                    isostring: date.toISOString(),
+                    localestring: date.toLocaleString(),
                 }, 
                 company:{
                     email: company.email,
                     website: company.website,
                     company_registry: company.company_registry,
-                    contact_address: company.contact_address, 
+                    contact_address: company.partner_id[1], 
                     vat: company.vat,
                     name: company.name,
                     phone: company.phone,
+                    logo:  this.pos.company_logo_base64,
                 },
                 shop:{
                     name: shop.name,
                 },
-                currency: this.pos.get('currency'),
+                currency: this.pos.currency,
             };
         },
-        exportAsJSON: function() {
+        export_as_JSON: function() {
             var orderLines, paymentLines;
             orderLines = [];
             (this.get('orderLines')).each(_.bind( function(item) {
@@ -888,8 +1185,6 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
             (this.get('paymentLines')).each(_.bind( function(item) {
                 return paymentLines.push([0, 0, item.export_as_JSON()]);
             }, this));
-            var client = this.pos.get('selectedOrder').get('client');
-            var order_id = this.pos.get('selectedOrder').get('order_id');
             return {
                 name: this.getName(),
                 amount_paid: this.getPaidTotal(),
@@ -898,10 +1193,11 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                 amount_return: this.getChange(),
                 lines: orderLines,
                 statement_ids: paymentLines,
-                pos_session_id: this.pos.get('pos_session').id,
-                partner_id: client ? client.id : undefined,
-                user_id: this.pos.get('cashier') ? this.pos.get('cashier').id : this.pos.get('user').id,
-                order_id: order_id ? order_id : undefined
+                pos_session_id: this.pos.pos_session.id,
+                partner_id: this.get_client() ? this.get_client().id : false,
+                user_id: this.pos.cashier ? this.pos.cashier.id : this.pos.user.id,
+                uid: this.uid,
+                sequence_number: this.sequence_number,
             };
         },
         getSelectedLine: function(){
@@ -918,6 +1214,24 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                 }
             }else{
                 this.selected_orderline = undefined;
+            }
+        },
+        deselectLine: function(){
+            if(this.selected_orderline){
+                this.selected_orderline.set_selected(false);
+                this.selected_orderline = undefined;
+            }
+        },
+        selectPaymentline: function(line){
+            if(line !== this.selected_paymentline){
+                if(this.selected_paymentline){
+                    this.selected_paymentline.set_selected(false);
+                }
+                this.selected_paymentline = line;
+                if(this.selected_paymentline){
+                    this.selected_paymentline.set_selected(true);
+                }
+                this.trigger('change:selected_paymentline',this.selected_paymentline);
             }
         },
     });
@@ -970,7 +1284,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
             var oldBuffer;
             oldBuffer = this.get('buffer');
             this.set({
-                buffer: oldBuffer[0] === '-' ? oldBuffer.substr(1) : "-" + oldBuffer
+                buffer: oldBuffer[0] === '-' ? oldBuffer.substr(1) : "-" + oldBuffer 
             });
             this.trigger('set_value',this.get('buffer'));
         },
@@ -989,12 +1303,5 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
         resetValue: function(){
             this.set({buffer:'0'});
         },
-    });
-    
-    module.Customer = Backbone.Model.extend({
-    });
-  
-    module.CustomerCollection = Backbone.Collection.extend({
-        model: module.Customer,
     });
 }
