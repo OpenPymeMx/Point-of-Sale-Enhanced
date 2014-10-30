@@ -211,6 +211,19 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
         barcode_error_action: function(code){
             this.pos_widget.screen_selector.show_popup('error-barcode',code.code);
         },
+        // what happens when a product is entered by keypad emulator : 
+        // it will add the product to the order.
+        keypad_product_action: function(data){
+            var self = this;
+            if(self.pos.keypad_enter_product(data)){
+                self.pos.proxy.keypad_item_success(data);
+            }else{
+                self.pos.proxy.keypad_item_error_unrecognized(data);
+                if(self.product_error_popup && self.pos_widget.screen_selector.get_user_mode() === 'cashier'){
+                    self.pos_widget.screen_selector.show_popup(self.product_error_popup);
+                }
+            }
+        },
         // shows an action bar on the screen. The actionbar is automatically shown when you add a button
         // with add_action_button()
         show_action_bar: function(){
@@ -262,6 +275,8 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
                 'discount': self.barcode_discount_action ? function(code){ self.barcode_discount_action(code); } : undefined,
                 'error'   : self.barcode_error_action ?  function(code){ self.barcode_error_action(code);   } : undefined,
             });
+            
+            this.pos.keypad.set_action_callback(function(data){ self.keypad_product_action(data); });
         },
 
         // this method is called when the screen is closed to make place for a new screen. this is a good place

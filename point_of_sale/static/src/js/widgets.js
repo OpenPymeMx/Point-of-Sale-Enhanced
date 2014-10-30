@@ -1014,6 +1014,8 @@ function openerp_pos_widgets(instance, module){ //module is instance.point_of_sa
                 self.screen_selector.set_default_screen();
 
                 self.pos.barcode_reader.connect();
+                
+                self.pos.keypad.connect();
 
                 instance.webclient.set_content_full_screen(true);
 

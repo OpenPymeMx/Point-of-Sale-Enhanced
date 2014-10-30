@@ -432,6 +432,18 @@ function openerp_pos_devices(instance,module){ //module is instance.point_of_sal
         log: function(){
             return this.message('log',{'arguments': _.toArray(arguments)});
         },
+        
+        //a product has been entered by keypad and recognized with success
+        // data is a parsed {product.code,qty,price} object
+        keypad_item_success: function(data){
+            return this.message('keypad_item_success',{data: data});
+        },
+
+        // a product has been entered by keypad but not recognized
+        // data is a parsed {product.code,qty,price} object
+        keypad_item_error_unrecognized: function(data){
+            return this.message('keypad_item_error_unrecognized',{data: data});
+        },
 
     });
 
@@ -790,6 +802,216 @@ function openerp_pos_devices(instance,module){ //module is instance.point_of_sal
         // the barcode scanner will stop listening on the hw_proxy/scanner remote interface
         disconnect_from_proxy: function(){
             this.remote_scanning = false;
+        },
+    });
+    
+    // this module mimics a keypad-only cash register. Use connect() and 
+    // disconnect() to activate and deactivate it. Use set_action_callback to
+    // tell it what to do when the cashier enters product data(qty, price, etc).
+    // TODO: Implement this using one of this project:
+    //  - https://github.com/madrobby/keymaster/
+    module.Keypad = instance.web.Class.extend({
+        init: function(attributes){
+            this.pos = attributes.pos;
+            this.action_callback = undefined;
+            this.saved_callback_stack = [];
+        },
+
+        save_callback: function(){
+            this.saved_callback_stack.push(this.action_callback);
+        },
+
+        restore_callback: function(){
+            if (this.saved_callback_stack.length > 0) {
+                this.action_callback = this.saved_callback_stack.pop();
+            }
+        },
+
+        set_action_callback: function(callback){
+            this.action_callback = callback;
+        },
+
+        //remove action callback
+        reset_action_callback: function(){
+            this.action_callback = undefined;
+        },
+        
+        reset_parse_result: function(parse_result) {
+            parse_result.code = 0;
+            parse_result.qty = 0;
+            parse_result.priceOverride = false;
+            parse_result.price = 0.00;
+            parse_result.discount = 0.00;
+            parse_result.void_last_line = false;
+        },
+        
+        copy_parse_result: function(src) {
+            var dst = {
+                code:          null,
+                qty:           1,
+                priceOverride: false,
+                price:         0.00,
+                discount:      0.00,
+                void_last_line: false,
+            };
+            dst.code = src.code;
+            dst.qty = src.qty;
+            dst.priceOverride = src.priceOverride;
+            dst.price = src.price;
+            dst.discount = src.discount;
+            dst.void_last_line = src.void_last_line;
+            return dst;
+        },
+
+        // starts catching keyboard events and tries to interpret keystrokes, 
+        // calling the callback when needed.
+        connect: function() {
+            var self = this,
+                KC_PLU = 107,      // KeyCode: Product Code (Keypad '+')
+                KC_QTY = 111,      // KeyCode: Quantity (Keypad '/')
+                KC_AMT = 106,      // KeyCode: Price (Keypad '*')
+                KC_DISC = 109,     // KeyCode: Discount Percentage [0..100] (Keypad '-')
+                KC_VOID = 13,      // KeyCode: Void current line (Keyboard/Keypad Enter key)
+                KC_CLR1 = 46,      // KeyCode: Clear last line of order (Keyboard Delete key)
+                KC_CLR2 = 8,       // KeyCode: Clear current line (Keyboard Backspace key)
+                KC_ESC = 27,       // KeyCode: Back to default mode focus on searchbox (Keyboard Escape key)
+                codeNumbers = [],
+                codeChars = [],
+                parse_result = {
+                    code:          null,
+                    qty:           1,
+                    priceOverride: false,
+                    price:         0.00,
+                    discount:      0.00,
+                    void_last_line: false,
+                },
+                kc_lookup = {
+                    96: '0',
+                    97: '1',
+                    98: '2',
+                    99: '3',
+                    100: '4',
+                    101: '5',
+                    102: '6',
+                    103: '7',
+                    104: '8',
+                    105: '9',
+                    106: '*',
+                    107: '+',
+                    109: '-',
+                    110: '.',
+                    111: '/',
+                },
+                kc_functions = {
+                    112: '0',   //F1
+                    113: '1',   //F2
+                    114: '2',   //F3
+                    115: '3',   //F4
+                    116: '4',   //F5
+                    117: '5',   //F6
+                    118: '6',   //F7
+                    119: '7',   //F8
+                    120: '8',   //F9
+                    121: '9',   //F10
+                    122: '10',   //F11
+                    123: '11',   //F12
+                };
+            
+            // Catch keydown events anywhere in the POS interface for prevent backspace default
+            $('body').delegate('','keydown', function (e){
+                prevent = false;
+                // Prevent some default behaviors work on browsers for make 
+                // better interface interaction with PoS
+                if ((e.which === 8 && !$(e.target).is("input, textarea")) ||
+                    (e.keyCode === 116 || (e.altKey && e.keyCode === 115)) ||
+                    (e.which >= 112 && e.which <= 123) ) {
+                    prevent = true;
+                }
+                
+                if (e.ctrlKey && e.keyCode === 70) {
+                    // Set focus on search box
+                    document.getElementById("searchbox").focus();
+                    prevent = true;
+                }
+                if (prevent) {
+                    e.preventDefault();
+                }
+            });
+
+            // Catch keyup events anywhere in the POS interface.  Barcode reader also does this, but won't interfere
+            // because it looks for a specific timing between keyup events. On the plus side this should mean that you
+            // can use both the keypad and the barcode reader during the same session (but for separate order lines).
+            // This could be useful in cases where the scanner can't read the barcode.
+            $('body').delegate('','keyup', function (e){
+                // On first section we only care about numbers and modifiers
+                token = e.keyCode;                
+                if ((token >= 96 && token <= 111) || token === KC_PLU || token === KC_QTY || token === KC_AMT) {
+                    if (token === KC_PLU) {
+                        parse_result.code = codeChars.join('');
+                        var res = self.copy_parse_result(parse_result);
+                        codeNumbers = [];
+                        codeChars = [];
+                        self.reset_parse_result(parse_result);
+                        self.action_callback(res);
+                    } else if (token === KC_QTY) {
+                        parse_result.qty = parseInt(codeChars.join(''));
+                        codeNumbers = [];
+                        codeChars = [];
+                    } else if (token === KC_AMT) {
+                        parse_result.price = parseFloat(codeChars.join('')).toFixed(2);
+                        parse_result.priceOverride = true;
+                        codeNumbers = [];
+                        codeChars = [];
+                    } else if (token === KC_DISC) {
+                        parse_result.discount = parseFloat(codeChars.join(''));
+                        codeNumbers = [];
+                        codeChars = [];
+                    } else {
+                        codeNumbers.push(token - 48);
+                        codeChars.push(kc_lookup[token]);
+                    }
+                } else if (token >= 112 && token <= 123) {
+                    /*
+                     * Process function keys so we can set payment method based on them
+                     */
+                    var res = {};
+                    codeNumbers = [];
+                    codeChars = [];
+                    self.reset_parse_result(parse_result);
+                    res.kc_functions = kc_functions[token];
+                    self.action_callback(res);
+                } else if (token === KC_VOID) {
+                    /*
+                     * TODO: Is this true???
+                     * This is commented out for now. We don't want to interfere with
+                     * the 'Enter' keycode used by the barcode reader to signify a scan.
+                     * 
+                     */
+                    // Send signal to action_callback function to process the enter
+                    // according to the currently active screen
+                    parse_result.void_last_line = true;
+                    var res = self.copy_parse_result(parse_result);
+                    codeNumbers = [];
+                    codeChars = [];
+                    self.reset_parse_result(parse_result);
+                    self.action_callback(res);
+                } else {
+                    // For now pressing Backspace or Delete just defaults to doing nothing.
+                    // In the future we might want it to display a popup or something.
+                    if (token === KC_CLR1 || token === KC_CLR2) {
+                        ;
+                    }
+                    codeNumbers = [];
+                    codeChars = [];
+                    self.reset_parse_result(parse_result);
+                }
+            });
+        },
+
+        // stops catching keyboard events 
+        disconnect: function(){
+            $('body').undelegate('', 'keyup');
+            $('body').undelegate('', 'keydown');
         },
     });
 

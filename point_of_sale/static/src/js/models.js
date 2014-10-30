@@ -25,6 +25,7 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
 
             this.proxy = new module.ProxyDevice(this);              // used to communicate to the hardware devices via a local proxy
             this.barcode_reader = new module.BarcodeReader({'pos': this, proxy:this.proxy, patterns: {}});  // used to read barcodes
+            this.keypad = new module.Keypad({'pos': this});     // used to simulate a cash register keypad
             this.proxy_queue = new module.JobQueue();           // used to prevent parallels communications to the proxy
             this.db = new module.PosDB();                       // a local database used to search trough products and categories & store pending orders
             this.debug = jQuery.deparam(jQuery.param.querystring()).debug !== undefined;    //debug mode 
@@ -617,6 +618,38 @@ function openerp_pos_models(instance, module){ //module is instance.point_of_sal
                 selectedOrder.addProduct(product, {discount:parsed_code.value, merge:false});
             }else{
                 selectedOrder.addProduct(product);
+            }
+            return true;
+        },
+        
+        keypad_enter_product: function(parsed_data){
+            var self = this;
+            var doMerge = true;
+            var product = this.db.get_product_by_reference(parsed_data.code);
+            var selectedOrder = this.get('selectedOrder');
+
+            if (parsed_data.void_last_line) {
+                line = selectedOrder.getLastOrderline();
+                if (line) {
+                    line.set_quantity(Number.NaN);
+                }
+                return true;
+            }
+            
+            if (!product){
+                return false;
+            }
+            
+            if (parsed_data.discount > 0) {
+                doMerge = false;
+            }
+            
+            if (!parsed_data.priceOverride) {
+                parsed_data.price = product.price;
+            }
+            selectedOrder.addProduct(product, {quantity: parsed_data.qty, price: parsed_data.price, merge: doMerge});
+            if (!doMerge){
+                selectedOrder.selected_orderline.set_discount(parsed_data.discount);
             }
             return true;
         },

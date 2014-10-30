@@ -757,6 +757,11 @@
             </div>
             <div class="product-name">
                 <t t-esc="product.display_name"/>
+                    <t t-if="product.default_code">
+                        <span class="code-tag">
+                            <t t-esc="product.default_code"/>
+                        </span>
+                   </t>
             </div>
         </span>
     </t>
