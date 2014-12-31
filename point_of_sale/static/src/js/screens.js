@@ -211,13 +211,25 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
         barcode_error_action: function(code){
             this.pos_widget.screen_selector.show_popup('error-barcode',code.code);
         },
-        // what happens when a product is entered by keypad emulator : 
-        // it will add the product to the order.
+        // What happens when a product is entered by keypad emulator is based on current_screen context
+        // 
+        // Product screen  -> it will add the product to the order.
+        // Payment screen -> try to emulate click on validate button. 
         keypad_product_action: function(data){
-            var self = this;
+            var self = this,
+                current_screen = self.pos_widget.screen_selector.current_screen;
+            
             if(self.pos.keypad_enter_product(data)){
+            // If other context try to add a product to the current order
                 self.pos.proxy.keypad_item_success(data);
-            }else{
+            } else if(current_screen.template == 'ProductScreenWidget' && self.pos_widget.numpad_visible) {
+            // If context => ProductScreenWidget try to set a payment method for current order
+                self.pos_widget.paypad.$('button').each(function(number) {
+                    if(number == data.kc_functions) {
+                        $(this).click();
+                    }
+                });
+            } else{
                 self.pos.proxy.keypad_item_error_unrecognized(data);
                 if(self.product_error_popup && self.pos_widget.screen_selector.get_user_mode() === 'cashier'){
                     self.pos_widget.screen_selector.show_popup(self.product_error_popup);

@@ -729,8 +729,8 @@ function openerp_pos_devices(instance,module){ //module is instance.point_of_sal
             var timeout = null;
 
             this.handler = function(e){
-
-                if(e.which === 13){ //ignore returns
+                // Prevent default action for returns and "/" 
+                if(e.which === 13 || e.which === 47){ 
                     e.preventDefault();
                     return;
                 }
@@ -838,7 +838,7 @@ function openerp_pos_devices(instance,module){ //module is instance.point_of_sal
         
         reset_parse_result: function(parse_result) {
             parse_result.code = 0;
-            parse_result.qty = 0;
+            parse_result.qty = 1;
             parse_result.priceOverride = false;
             parse_result.price = 0.00;
             parse_result.discount = 0.00;
