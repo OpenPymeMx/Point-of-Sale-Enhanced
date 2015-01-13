@@ -219,7 +219,9 @@ function openerp_pos_screens(instance, module){ //module is instance.point_of_sa
             var self = this,
                 current_screen = self.pos_widget.screen_selector.current_screen;
             
-            if(current_screen.template == 'ProductScreenWidget' && self.pos.keypad_enter_product(data)){
+            if(current_screen.template == 'ReceiptScreenWidget' && data.void_last_line) {
+                self.pos_widget.action_bar.button_list[1].click_action();             
+            } else if(current_screen.template == 'ProductScreenWidget' && self.pos.keypad_enter_product(data)){
             // If other context try to add a product to the current order
                 self.pos.proxy.keypad_item_success(data);
             } else if(current_screen.template == 'ProductScreenWidget' && self.pos_widget.numpad_visible) {
