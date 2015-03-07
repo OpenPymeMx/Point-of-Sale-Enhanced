@@ -1,4 +1,4 @@
-function openerp_pos_basewidget(instance, module){ //module is instance.point_of_sale
+openerp.point_of_sale.load_basewidget = function load_basewidget(instance, module){ //module is instance.point_of_sale
 
     // This is a base class for all Widgets in the POS. It exposes relevant data to the 
     // templates : 

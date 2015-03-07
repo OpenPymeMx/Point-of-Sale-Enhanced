@@ -1,5 +1,4 @@
-
-function openerp_pos_devices(instance,module){ //module is instance.point_of_sale
+openerp.point_of_sale.load_devices = function load_devices(instance,module){ //module is instance.point_of_sale
 	var _t = instance.web._t;
 
     // the JobQueue schedules a sequence of 'jobs'. each job is

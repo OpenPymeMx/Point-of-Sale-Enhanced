@@ -1,4 +1,4 @@
-function openerp_pos_models(instance, module){ //module is instance.point_of_sale
+openerp.point_of_sale.load_models = function load_models(instance, module){ //module is instance.point_of_sale
     var QWeb = instance.web.qweb;
 	var _t = instance.web._t;
 
